@@ -21,4 +21,9 @@ export class DrillShaftObjective {
   isReached() {
     return this.reached;
   }
+
+  reset() {
+    this.completed = false;
+    this.reached = false;
+  }
 }

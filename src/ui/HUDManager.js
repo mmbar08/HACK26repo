@@ -5,6 +5,7 @@ export class HUDManager {
     this.fpsFrames = 0;
     this.fpsAccumulator = 0;
     this.damageFlashStrength = 0;
+    this.hitBorderStrength = 0;
     this.clipSpaceVector = new THREE.Vector3();
 
     this.message = document.createElement('div');
@@ -158,6 +159,36 @@ export class HUDManager {
     this.crosshair.textContent = '+';
     document.body.appendChild(this.crosshair);
 
+    this.weaponCooldownUi = document.createElement('div');
+    this.weaponCooldownUi.style.position = 'fixed';
+    this.weaponCooldownUi.style.left = '50%';
+    this.weaponCooldownUi.style.bottom = '56px';
+    this.weaponCooldownUi.style.transform = 'translateX(-50%)';
+    this.weaponCooldownUi.style.padding = '6px 8px';
+    this.weaponCooldownUi.style.background = 'rgba(0, 0, 0, 0.42)';
+    this.weaponCooldownUi.style.color = '#dff3ed';
+    this.weaponCooldownUi.style.fontFamily = 'system-ui, sans-serif';
+    this.weaponCooldownUi.style.fontSize = '11px';
+
+    this.weaponCooldownLabel = document.createElement('div');
+    this.weaponCooldownLabel.style.marginBottom = '4px';
+    this.weaponCooldownLabel.textContent = 'Laser: READY';
+
+    const weaponCooldownTrack = document.createElement('div');
+    weaponCooldownTrack.style.width = '150px';
+    weaponCooldownTrack.style.height = '7px';
+    weaponCooldownTrack.style.background = 'rgba(255, 255, 255, 0.16)';
+
+    this.weaponCooldownFill = document.createElement('div');
+    this.weaponCooldownFill.style.height = '100%';
+    this.weaponCooldownFill.style.width = '0%';
+    this.weaponCooldownFill.style.background = 'linear-gradient(90deg, #ff664d 0%, #ffd86b 100%)';
+
+    weaponCooldownTrack.appendChild(this.weaponCooldownFill);
+    this.weaponCooldownUi.appendChild(this.weaponCooldownLabel);
+    this.weaponCooldownUi.appendChild(weaponCooldownTrack);
+    document.body.appendChild(this.weaponCooldownUi);
+
     this.inputDebug = document.createElement('div');
     this.inputDebug.style.position = 'fixed';
     this.inputDebug.style.left = '12px';
@@ -177,7 +208,6 @@ export class HUDManager {
     this.healthUi.style.bottom = '12px';
     this.healthUi.style.padding = '8px';
     this.healthUi.style.background = 'rgba(0, 0, 0, 0.45)';
-    this.healthUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
     this.healthUi.style.width = '220px';
     this.healthUi.style.fontFamily = 'system-ui, sans-serif';
     this.healthUi.style.fontSize = '12px';
@@ -191,7 +221,6 @@ export class HUDManager {
     healthTrack.style.width = '100%';
     healthTrack.style.height = '14px';
     healthTrack.style.background = 'rgba(255, 255, 255, 0.2)';
-    healthTrack.style.border = '1px solid rgba(255, 255, 255, 0.25)';
 
     this.healthFill = document.createElement('div');
     this.healthFill.style.height = '100%';
@@ -226,6 +255,14 @@ export class HUDManager {
     this.damageFlash.style.background = 'rgba(255, 50, 50, 0)';
     document.body.appendChild(this.damageFlash);
 
+    this.hitBorder = document.createElement('div');
+    this.hitBorder.style.position = 'fixed';
+    this.hitBorder.style.inset = '0';
+    this.hitBorder.style.pointerEvents = 'none';
+    this.hitBorder.style.border = '0 solid rgba(220, 30, 30, 0)';
+    this.hitBorder.style.boxSizing = 'border-box';
+    document.body.appendChild(this.hitBorder);
+
     this.lockHint = document.createElement('div');
     this.lockHint.style.position = 'fixed';
     this.lockHint.style.inset = '0';
@@ -239,10 +276,66 @@ export class HUDManager {
     this.lockHint.style.cursor = 'pointer';
     this.lockHint.innerHTML = 'Click to enter FPS controls<br/>ESC to unlock cursor';
     document.body.appendChild(this.lockHint);
+
+    this.deathOverlay = document.createElement('div');
+    this.deathOverlay.style.position = 'fixed';
+    this.deathOverlay.style.inset = '0';
+    this.deathOverlay.style.display = 'none';
+    this.deathOverlay.style.pointerEvents = 'none';
+    this.deathOverlay.style.background = 'rgba(5, 8, 12, 0.55)';
+    this.deathOverlay.style.zIndex = '20';
+
+    this.deathPanel = document.createElement('div');
+    this.deathPanel.style.position = 'fixed';
+    this.deathPanel.style.left = '50%';
+    this.deathPanel.style.top = '50%';
+    this.deathPanel.style.transform = 'translate(-50%, -50%)';
+    this.deathPanel.style.padding = '20px 24px';
+    this.deathPanel.style.background = 'rgba(10, 14, 20, 0.88)';
+    this.deathPanel.style.border = '1px solid rgba(255, 255, 255, 0.28)';
+    this.deathPanel.style.boxShadow = '0 10px 35px rgba(0, 0, 0, 0.45)';
+    this.deathPanel.style.textAlign = 'center';
+    this.deathPanel.style.pointerEvents = 'auto';
+
+    this.deathTitle = document.createElement('div');
+    this.deathTitle.style.fontFamily = 'system-ui, sans-serif';
+    this.deathTitle.style.fontSize = '28px';
+    this.deathTitle.style.fontWeight = '700';
+    this.deathTitle.style.color = '#ffb3b3';
+    this.deathTitle.style.marginBottom = '8px';
+    this.deathTitle.textContent = 'MISSION FAILED';
+
+    this.deathReason = document.createElement('div');
+    this.deathReason.style.fontFamily = 'system-ui, sans-serif';
+    this.deathReason.style.fontSize = '14px';
+    this.deathReason.style.color = '#e6f4f1';
+    this.deathReason.style.marginBottom = '16px';
+    this.deathReason.textContent = 'Critical system failure.';
+
+    this.respawnButton = document.createElement('button');
+    this.respawnButton.type = 'button';
+    this.respawnButton.textContent = 'Respawn';
+    this.respawnButton.style.padding = '9px 16px';
+    this.respawnButton.style.fontFamily = 'system-ui, sans-serif';
+    this.respawnButton.style.fontSize = '14px';
+    this.respawnButton.style.border = '1px solid rgba(130, 215, 255, 0.7)';
+    this.respawnButton.style.background = 'rgba(40, 120, 180, 0.35)';
+    this.respawnButton.style.color = '#dff7ff';
+    this.respawnButton.style.cursor = 'pointer';
+
+    this.deathPanel.appendChild(this.deathTitle);
+    this.deathPanel.appendChild(this.deathReason);
+    this.deathPanel.appendChild(this.respawnButton);
+    this.deathOverlay.appendChild(this.deathPanel);
+    document.body.appendChild(this.deathOverlay);
   }
 
   onStartClick(handler) {
     this.lockHint.addEventListener('click', handler);
+  }
+
+  onRespawnClick(handler) {
+    this.respawnButton.addEventListener('click', handler);
   }
 
   setLockState(isLocked) {
@@ -320,6 +413,17 @@ export class HUDManager {
     this.damageFlash.style.background = `rgba(255, 50, 50, ${this.damageFlashStrength * 0.25})`;
   }
 
+  triggerHitBorder(normalizedAmount) {
+    this.hitBorderStrength = Math.min(1, this.hitBorderStrength + normalizedAmount);
+  }
+
+  updateHitBorder(delta) {
+    this.hitBorderStrength = Math.max(0, this.hitBorderStrength - delta * 2.6);
+    const alpha = this.hitBorderStrength * 0.58;
+    const width = 7 + this.hitBorderStrength * 14;
+    this.hitBorder.style.border = `${width}px solid rgba(220, 30, 30, ${alpha})`;
+  }
+
   updateFps(delta) {
     this.fpsFrames += 1;
     this.fpsAccumulator += delta;
@@ -334,6 +438,12 @@ export class HUDManager {
 
   setInputDebug(pressedKeysText, aliveEnemies) {
     this.inputDebug.textContent = `Keys: ${pressedKeysText} | Enemies: ${aliveEnemies}`;
+  }
+
+  setWeaponCooldown(cooldownRatio) {
+    const ratio = THREE.MathUtils.clamp(cooldownRatio, 0, 1);
+    this.weaponCooldownFill.style.width = `${Math.round(ratio * 100)}%`;
+    this.weaponCooldownLabel.textContent = ratio > 0.02 ? 'Laser: COOLING' : 'Laser: READY';
   }
 
   updateDrillMarker(drillPosition, camera, cameraPosition) {
@@ -357,5 +467,21 @@ export class HUDManager {
   showMessage(text) {
     this.message.style.display = 'block';
     this.message.textContent = text;
+  }
+
+  showDeathScreen(reasonText = 'Operator incapacitated.') {
+    this.deathReason.textContent = reasonText;
+    this.deathOverlay.style.display = 'block';
+    this.deathOverlay.style.pointerEvents = 'auto';
+  }
+
+  hideDeathScreen() {
+    this.deathOverlay.style.display = 'none';
+    this.deathOverlay.style.pointerEvents = 'none';
+  }
+
+  setDeathDim(amount) {
+    const alpha = THREE.MathUtils.clamp(amount, 0, 0.85);
+    this.deathOverlay.style.background = `rgba(5, 8, 12, ${alpha})`;
   }
 }

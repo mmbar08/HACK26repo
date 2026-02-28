@@ -49,6 +49,16 @@ export class PlayerController {
     this.verticalVelocity = 0;
   }
 
+  respawn(x = 0, z = 10, yaw = Math.PI, pitch = 0) {
+    this.resetMotion();
+    this.yaw = yaw;
+    this.pitch = pitch;
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
+    this.camera.position.set(x, this.playerHeight, z);
+  }
+
   update(delta) {
     if (this.input.isPressed('Space')) {
       this.jumpQueued = true;

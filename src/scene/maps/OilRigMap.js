@@ -67,70 +67,76 @@ export class OilRigMap {
     this.floorTextureRepeatScale = 8;
     this.elevatedPlatformCountMin = 4;
     this.elevatedPlatformCountMax = 7;
-    this.rampSpawnChancePerSide = 0.55;
-    this.globalModelScale = 0.1;
+    this.rampedPlatformChance = 0.55;
+    this.rampSpawnChancePerSide = 0.35;
+    this.globalModelScale = 0.07;
+    this.modelSpawnScaleMultiplier = 0.78;
+    this.spawnedModelMinLongestSide = 1.2;
+    this.spawnedModelMaxLongestSide = 6.5;
     this.platformPbrSet = null;
+    this.nonRubberPbrSets = [];
     this.showPropDebugColliders = true;
+    this.roomHeight = 21.5;
+    this.wallThickness = 1.4;
+    this.ceilingLights = [];
+    this.windowLights = [];
+    this.windowExteriorLights = [];
+    this.fireEmitters = [];
+    this.fireParticleSystems = [];
+    this.fireParticleCount = 22;
     this.modelConfigs = [
       {
         url: '/assets/models/barrel.glb',
-        scale: 8.0,
+        scale: 1.0,
         randomMin: 0.85,
         randomMax: 1.25,
         colliderScale: 0.9,
       },
       {
         url: '/assets/models/dirty_oil_barrel_-_5mb.glb',
-        scale: 8.0,
+        scale: 1.0,
         randomMin: 0.85,
         randomMax: 1.25,
         colliderScale: 0.9,
       },
       {
         url: '/assets/models/motor_oil_can.glb',
-        scale: 0.2,
+        scale: 1,
         randomMin: 0.8,
         randomMax: 1.2,
         colliderScale: 0.82,
       },
       {
         url: '/assets/models/old_oil_tank.glb',
-        scale: 0.5,
+        scale: 1,
         randomMin: 0.9,
         randomMax: 1.35,
         colliderScale: 0.94,
       },
       {
         url: '/assets/models/old_oil_tank_.2.glb',
-        scale: 0.2,
+        scale: 10,
         randomMin: 0.9,
         randomMax: 1.35,
         colliderScale: 0.94,
       },
       {
         url: '/assets/models/crate_box.glb',
-        scale: 0.5,
+        scale: 2,
         randomMin: 0.9,
         randomMax: 1.25,
         colliderScale: 0.92,
       },
       {
-        url: '/assets/models/crate_pile.glb',
-        scale: 5,
-        randomMin: 0.9,
-        randomMax: 1.2,
-        colliderScale: 0.95,
-      },
-      {
         url: '/assets/models/wooden_crate.glb',
-        scale: 0.6,
+        scale: 2,
         randomMin: 0.9,
         randomMax: 1.25,
         colliderScale: 0.92,
       },
       {
         url: '/assets/models/rusty_and_oil_stained_oil_barrel.glb',
-        scale: 5.0,
+        scale: 2.0,
         randomMin: 0.85,
         randomMax: 1.25,
         colliderScale: 0.9,
@@ -150,6 +156,8 @@ export class OilRigMap {
     this.rigFloor.position.y = -0.5;
     this.scene.add(this.rigFloor);
     this.raycastObjects.push(this.rigFloor);
+
+    this.createInteriorStructure();
 
     this.drillShaft = new THREE.Mesh(
       new THREE.CylinderGeometry(2.4, 2.4, 12, 24),
@@ -192,7 +200,298 @@ export class OilRigMap {
       .map(({ result, config }) => ({ scene: result.value, config }));
 
     this.generateElevatedPlatforms();
+    this.createFireEmitters();
     this.scatterProceduralProps(templates);
+  }
+
+  createInteriorStructure() {
+    const interiorSize = this.levelSize - 2;
+    const halfInterior = interiorSize * 0.5;
+    const wallHalfHeight = this.roomHeight * 0.5;
+    const wallY = wallHalfHeight;
+    const wallMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1b252d,
+      roughness: 0.86,
+      metalness: 0.28,
+    });
+
+    const northWall = new THREE.Mesh(
+      new THREE.BoxGeometry(interiorSize, this.roomHeight, this.wallThickness),
+      wallMaterial
+    );
+    northWall.position.set(0, wallY, -halfInterior);
+
+    const southWall = new THREE.Mesh(
+      new THREE.BoxGeometry(interiorSize, this.roomHeight, this.wallThickness),
+      wallMaterial
+    );
+    southWall.position.set(0, wallY, halfInterior);
+
+    const eastWall = new THREE.Mesh(
+      new THREE.BoxGeometry(this.wallThickness, this.roomHeight, interiorSize),
+      wallMaterial
+    );
+    eastWall.position.set(halfInterior, wallY, 0);
+
+    const westWall = new THREE.Mesh(
+      new THREE.BoxGeometry(this.wallThickness, this.roomHeight, interiorSize),
+      wallMaterial
+    );
+    westWall.position.set(-halfInterior, wallY, 0);
+
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(interiorSize, this.wallThickness, interiorSize),
+      new THREE.MeshStandardMaterial({
+        color: 0x2a343c,
+        roughness: 0.82,
+        metalness: 0.24,
+      })
+    );
+    roof.position.set(0, this.roomHeight + this.wallThickness * 0.5, 0);
+
+    const structures = [northWall, southWall, eastWall, westWall, roof];
+    for (const mesh of structures) {
+      this.scene.add(mesh);
+      this.raycastObjects.push(mesh);
+    }
+
+    this.addStaticColliderFromObject(northWall, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
+    this.addStaticColliderFromObject(southWall, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
+    this.addStaticColliderFromObject(eastWall, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
+    this.addStaticColliderFromObject(westWall, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
+    this.addStaticColliderFromObject(roof, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
+
+    this.createCeilingLightGrid(interiorSize);
+  }
+
+  createCeilingLightGrid(interiorSize) {
+    const gridCount = 3;
+    const spacing = interiorSize / (gridCount + 1);
+    const start = -interiorSize * 0.5 + spacing;
+    const fixtureY = this.roomHeight - 0.8;
+
+    for (let row = 0; row < gridCount; row += 1) {
+      for (let col = 0; col < gridCount; col += 1) {
+        const x = start + col * spacing;
+        const z = start + row * spacing;
+
+        const fixture = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.55, 0.55, 0.22, 12),
+          new THREE.MeshStandardMaterial({
+            color: 0x9fb4c6,
+            emissive: 0xc9e0ff,
+            emissiveIntensity: 2.2,
+            roughness: 0.38,
+            metalness: 0.22,
+          })
+        );
+        fixture.position.set(x, fixtureY, z);
+        this.scene.add(fixture);
+
+        const glowLight = new THREE.PointLight(0xdde9ff, 130, 48, 1.7);
+        glowLight.position.set(x, fixtureY - 0.35, z);
+        this.scene.add(glowLight);
+        this.ceilingLights.push(glowLight);
+      }
+    }
+  }
+
+  createIndustrialWindows() {
+    const halfInterior = (this.levelSize - 2) * 0.5;
+    const windowY = 11.5;
+    const windowZOffset = halfInterior - this.wallThickness * 0.52;
+    const windowXOffset = halfInterior - this.wallThickness * 0.52;
+    const windowPositions = [
+      new THREE.Vector3(-26, windowY, -windowZOffset),
+      new THREE.Vector3(0, windowY, -windowZOffset),
+      new THREE.Vector3(26, windowY, -windowZOffset),
+      new THREE.Vector3(-26, windowY, windowZOffset),
+      new THREE.Vector3(0, windowY, windowZOffset),
+      new THREE.Vector3(26, windowY, windowZOffset),
+      new THREE.Vector3(-windowXOffset, windowY, -24),
+      new THREE.Vector3(-windowXOffset, windowY, 0),
+      new THREE.Vector3(-windowXOffset, windowY, 24),
+      new THREE.Vector3(windowXOffset, windowY, -24),
+      new THREE.Vector3(windowXOffset, windowY, 0),
+      new THREE.Vector3(windowXOffset, windowY, 24),
+    ];
+
+    const windowMat = new THREE.MeshStandardMaterial({
+      color: 0x7f98aa,
+      emissive: 0x5a7688,
+      emissiveIntensity: 1.8,
+      roughness: 0.32,
+      metalness: 0.18,
+      transparent: true,
+      opacity: 0.85,
+    });
+
+    for (let index = 0; index < windowPositions.length; index += 1) {
+      const position = windowPositions[index];
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(8, 5, 0.35),
+        new THREE.MeshStandardMaterial({ color: 0x2e3b45, roughness: 0.78, metalness: 0.42 })
+      );
+      frame.position.copy(position);
+
+      if (Math.abs(position.x) > Math.abs(position.z)) {
+        frame.rotation.y = Math.PI * 0.5;
+      }
+
+      const outwardOffset = 3.5;
+      const exteriorPos = position.clone();
+
+      if (Math.abs(position.x) > Math.abs(position.z)) {
+        exteriorPos.x += position.x > 0 ? outwardOffset : -outwardOffset;
+      } else {
+        exteriorPos.z += position.z > 0 ? outwardOffset : -outwardOffset;
+      }
+
+      const exteriorLight = new THREE.PointLight(0xbddfff, 5.2, 62, 1.7);
+      exteriorLight.position.copy(exteriorPos);
+      exteriorLight.position.y += 1.1;
+      this.windowExteriorLights.push(exteriorLight);
+      this.scene.add(exteriorLight);
+
+      this.scene.add(frame);
+      this.raycastObjects.push(frame);
+    }
+  }
+
+  isBlockedByZone(x, z, zones, radius = 1.2) {
+    for (const zone of zones) {
+      if (
+        x + radius >= zone.minX &&
+        x - radius <= zone.maxX &&
+        z + radius >= zone.minZ &&
+        z - radius <= zone.maxZ
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  createFireEmitters() {
+    const emittersTarget = THREE.MathUtils.randInt(4, 6);
+    const halfLevel = this.levelSize * 0.5 - 8;
+    let attempts = 0;
+
+    while (this.fireEmitters.length < emittersTarget && attempts < 240) {
+      attempts += 1;
+      const x = THREE.MathUtils.randFloat(-halfLevel, halfLevel);
+      const z = THREE.MathUtils.randFloat(-halfLevel, halfLevel);
+
+      if (Math.hypot(x, z) < this.spawnProtectionRadius + 8) {
+        continue;
+      }
+
+      if (
+        Math.hypot(x - this.drillShaft.position.x, z - this.drillShaft.position.z) <
+        this.drillProtectionRadius + 6
+      ) {
+        continue;
+      }
+
+      if (this.isBlockedByZone(x, z, this.elevatedPlatformZones, 1.3)) {
+        continue;
+      }
+
+      if (this.isBlockedByZone(x, z, this.rampForbiddenZones, 1.3)) {
+        continue;
+      }
+
+      const light = new THREE.PointLight(0xff7a33, 150, 34, 1.45);
+      light.position.set(x, 1.3, z);
+      this.scene.add(light);
+
+      const particleGeometry = new THREE.BufferGeometry();
+      const positions = new Float32Array(this.fireParticleCount * 3);
+      const velocities = [];
+      const lifetimes = new Float32Array(this.fireParticleCount);
+
+      for (let i = 0; i < this.fireParticleCount; i += 1) {
+        const idx = i * 3;
+        positions[idx] = x;
+        positions[idx + 1] = 0.1 + Math.random() * 0.4;
+        positions[idx + 2] = z;
+        velocities.push(
+          new THREE.Vector3(
+            (Math.random() - 0.5) * 0.8,
+            2.1 + Math.random() * 2.6,
+            (Math.random() - 0.5) * 0.8
+          )
+        );
+        lifetimes[i] = Math.random() * 0.8 + 0.2;
+      }
+
+      particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const particleMaterial = new THREE.PointsMaterial({
+        color: 0xff8a2d,
+        size: 0.42,
+        transparent: true,
+        opacity: 0.62,
+        depthWrite: false,
+        blending: THREE.NormalBlending,
+      });
+
+      const points = new THREE.Points(particleGeometry, particleMaterial);
+      this.scene.add(points);
+
+      this.fireEmitters.push({
+        position: new THREE.Vector3(x, 0, z),
+        light,
+        baseIntensity: 130 + Math.random() * 32,
+        flickerTime: Math.random() * 8,
+      });
+
+      this.fireParticleSystems.push({
+        points,
+        geometry: particleGeometry,
+        positions,
+        velocities,
+        lifetimes,
+      });
+    }
+  }
+
+  updateFireEmitters(delta) {
+    for (let i = 0; i < this.fireEmitters.length; i += 1) {
+      const emitter = this.fireEmitters[i];
+      emitter.light.intensity = emitter.baseIntensity;
+      emitter.light.position.y = 1.2;
+
+      const particleSystem = this.fireParticleSystems[i];
+      if (!particleSystem) {
+        continue;
+      }
+
+      const { positions, velocities, lifetimes, geometry } = particleSystem;
+      for (let particleIndex = 0; particleIndex < this.fireParticleCount; particleIndex += 1) {
+        lifetimes[particleIndex] -= delta;
+        const baseIndex = particleIndex * 3;
+
+        if (lifetimes[particleIndex] <= 0) {
+          positions[baseIndex] = emitter.position.x + (Math.random() - 0.5) * 0.45;
+          positions[baseIndex + 1] = 0.08 + Math.random() * 0.25;
+          positions[baseIndex + 2] = emitter.position.z + (Math.random() - 0.5) * 0.45;
+          velocities[particleIndex].set(
+            (Math.random() - 0.5) * 0.7,
+            2 + Math.random() * 2.4,
+            (Math.random() - 0.5) * 0.7
+          );
+          lifetimes[particleIndex] = 0.55 + Math.random() * 0.95;
+          continue;
+        }
+
+        velocities[particleIndex].y += 0.9 * delta;
+        positions[baseIndex] += velocities[particleIndex].x * delta;
+        positions[baseIndex + 1] += velocities[particleIndex].y * delta;
+        positions[baseIndex + 2] += velocities[particleIndex].z * delta;
+      }
+
+      geometry.attributes.position.needsUpdate = true;
+    }
   }
 
   ensureUv2(geometry) {
@@ -245,6 +544,15 @@ export class OilRigMap {
     return material;
   }
 
+  getRandomNonRubberPbrSet() {
+    if (!this.nonRubberPbrSets.length) {
+      return null;
+    }
+
+    const index = Math.floor(Math.random() * this.nonRubberPbrSets.length);
+    return this.nonRubberPbrSets[index];
+  }
+
   async applyPbrTextures() {
     const floorRepeat = this.levelSize / this.floorTextureRepeatScale;
 
@@ -280,6 +588,7 @@ export class OilRigMap {
     ]);
 
     this.platformPbrSet = platformSet;
+    this.nonRubberPbrSets = [towerSet, drillSet, platformSet].filter(Boolean);
 
     this.ensureUv2(this.rigFloor.geometry);
     this.ensureUv2(this.rigTower.geometry);
@@ -321,7 +630,7 @@ export class OilRigMap {
     while (generatedCount < targetCount && attempts < maxAttempts) {
       attempts += 1;
 
-      const size = THREE.MathUtils.randFloat(16, 28);
+      const size = THREE.MathUtils.randFloat(12, 20);
       const height = THREE.MathUtils.randFloat(3.8, 7.2);
       const halfSize = size * 0.5;
       const x = THREE.MathUtils.randFloat(-halfLevel + halfSize + margin, halfLevel - halfSize - margin);
@@ -354,9 +663,10 @@ export class OilRigMap {
         continue;
       }
 
-      const repeat = Math.max(1.5, size / 9);
-      const material = this.platformPbrSet
-        ? this.createPbrMaterialFromSet(this.platformPbrSet, repeat, repeat, {
+      const repeat = Math.max(1.2, size / 9);
+      const platformPbrSet = this.getRandomNonRubberPbrSet();
+      const material = platformPbrSet
+        ? this.createPbrMaterialFromSet(platformPbrSet, repeat, repeat, {
             roughness: 1,
             metalness: 0.22,
             aoMapIntensity: 1,
@@ -380,6 +690,10 @@ export class OilRigMap {
   }
 
   tryGenerateRampsForPlatform(zone, size, topY) {
+    if (Math.random() > this.rampedPlatformChance) {
+      return;
+    }
+
     const sides = ['north', 'south', 'east', 'west'];
     for (const side of sides) {
       if (Math.random() > this.rampSpawnChancePerSide) {
@@ -432,8 +746,8 @@ export class OilRigMap {
   }
 
   createRampForPlatform(zone, size, topY, side) {
-    const rampRunLength = THREE.MathUtils.randFloat(8.5, 14.5);
-    const rampWidth = THREE.MathUtils.clamp(size * THREE.MathUtils.randFloat(0.42, 0.72), 7, size - 2);
+    const rampRunLength = THREE.MathUtils.randFloat(6.5, 10.5);
+    const rampWidth = THREE.MathUtils.clamp(size * THREE.MathUtils.randFloat(0.36, 0.58), 5.5, size - 2);
     const rampGeometry = this.createSolidRampGeometry(rampRunLength, rampWidth, topY);
     let rampRotationY = 0;
     let originX = 0;
@@ -483,8 +797,9 @@ export class OilRigMap {
 
     const repeatX = Math.max(1.2, rampWidth / 6);
     const repeatY = Math.max(1.2, rampRunLength / 6);
-    const material = this.platformPbrSet
-      ? this.createPbrMaterialFromSet(this.platformPbrSet, repeatX, repeatY, {
+    const rampPbrSet = this.getRandomNonRubberPbrSet();
+    const material = rampPbrSet
+      ? this.createPbrMaterialFromSet(rampPbrSet, repeatX, repeatY, {
           roughness: 1,
           metalness: 0.18,
           aoMapIntensity: 0.95,
@@ -542,14 +857,16 @@ export class OilRigMap {
         const modelScale =
           this.globalModelScale *
           (chosenTemplate.config.scale ?? 1) *
-          randomScaleFactor;
+          randomScaleFactor *
+          this.modelSpawnScaleMultiplier;
         prop.scale.setScalar(modelScale);
+        this.normalizeSpawnedModelSize(prop, chosenTemplate.config);
       } else {
         prop = new THREE.Mesh(
           new THREE.CylinderGeometry(0.45, 0.45, 1.2, 12),
           new THREE.MeshStandardMaterial({ color: 0x5d5044, roughness: 0.9, metalness: 0.18 })
         );
-        const fallbackScale = THREE.MathUtils.randFloat(0.6, 2.1);
+        const fallbackScale = THREE.MathUtils.randFloat(0.45, 1.45);
         prop.scale.setScalar(fallbackScale);
       }
 
@@ -572,6 +889,41 @@ export class OilRigMap {
         colliderScale: chosenTemplate?.config?.colliderScale ?? 0.9,
       });
     }
+  }
+
+  normalizeSpawnedModelSize(object3d, config = {}) {
+    object3d.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(object3d);
+    if (bounds.isEmpty()) {
+      return;
+    }
+
+    const size = bounds.getSize(new THREE.Vector3());
+    const longestSide = Math.max(size.x, size.y, size.z);
+    if (!Number.isFinite(longestSide) || longestSide <= 0.0001) {
+      return;
+    }
+
+    const scaleResponse = THREE.MathUtils.clamp(
+      Math.pow(config.scale ?? 1, 0.35),
+      0.7,
+      1.7
+    );
+
+    const minLongestSide =
+      (config.minLongestSide ?? this.spawnedModelMinLongestSide) * scaleResponse;
+    const maxLongestSide =
+      (config.maxLongestSide ?? this.spawnedModelMaxLongestSide) * scaleResponse;
+
+    const targetLongestSide = THREE.MathUtils.clamp(longestSide, minLongestSide, maxLongestSide);
+    const adjustment = targetLongestSide / longestSide;
+
+    if (Math.abs(adjustment - 1) < 0.01) {
+      return;
+    }
+
+    object3d.scale.multiplyScalar(adjustment);
+    object3d.updateMatrixWorld(true);
   }
 
   footprintIntersectsZone(minX, maxX, minZ, maxZ, zone) {
@@ -1242,6 +1594,7 @@ export class OilRigMap {
   update(delta) {
     this.drillShaft.rotation.y += delta * 0.35;
     this.rigTower.rotation.y += delta * 0.08;
+    this.updateFireEmitters(delta);
 
     for (const collider of this.hullColliderEntries) {
       this.updateDynamicCollider(collider);

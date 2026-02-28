@@ -9,6 +9,8 @@ export class ShootingSystem {
 
     this.shotLaserTtl = 0.1;
     this.maxLaserRange = 45;
+    this.cooldownDuration = 0.25;
+    this.cooldownRemaining = 0;
     this.shotRay = new THREE.Raycaster();
     this.worldRay = new THREE.Raycaster();
     this.screenCenter = new THREE.Vector2(0, 0);
@@ -24,6 +26,11 @@ export class ShootingSystem {
   }
 
   shoot() {
+    if (this.cooldownRemaining > 0) {
+      return false;
+    }
+
+    this.cooldownRemaining = this.cooldownDuration;
     this.shotRay.setFromCamera(this.screenCenter, this.camera);
 
     const shotStart = this.camera.localToWorld(this.muzzleOffset.clone());
@@ -65,7 +72,7 @@ export class ShootingSystem {
         spread: 1.1,
         gravityScale: 0.35,
       });
-      return;
+      return true;
     }
 
     if (worldHit) {
@@ -79,6 +86,8 @@ export class ShootingSystem {
         gravityScale: 0.2,
       });
     }
+
+    return true;
   }
 
   spawnPlayerHitParticles(origin) {
@@ -201,6 +210,8 @@ export class ShootingSystem {
   }
 
   update(delta, gravity) {
+    this.cooldownRemaining = Math.max(0, this.cooldownRemaining - delta);
+
     for (let index = this.laserTraces.length - 1; index >= 0; index -= 1) {
       const trace = this.laserTraces[index];
       trace.ttl -= delta;
@@ -246,5 +257,12 @@ export class ShootingSystem {
       burst.geometry.attributes.position.needsUpdate = true;
       burst.material.opacity = Math.max(0, burst.ttl / burst.maxTtl);
     }
+  }
+
+  getCooldownRatio() {
+    if (this.cooldownDuration <= 0) {
+      return 0;
+    }
+    return this.cooldownRemaining / this.cooldownDuration;
   }
 }

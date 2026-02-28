@@ -3,6 +3,7 @@ import { OilRigMap } from './scene/maps/OilRigMap.js';
 import { InputManager } from './input/InputManager.js';
 import { PlayerController } from './player/PlayerController.js';
 import { EnemyManager } from './enemies/EnemyManager.js';
+import { OilZombieSpawner } from './enemies/oilZombie/OilZombieSpawner.js';
 import { ShootingSystem } from './combat/ShootingSystem.js';
 import { HUDManager } from './ui/HUDManager.js';
 import { GameStateMachine } from './core/GameStateMachine.js';
@@ -21,8 +22,8 @@ renderer.domElement.tabIndex = 0;
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x101a22, 20, 140);
-scene.background = new THREE.Color(0x8fb9d9);
+scene.fog = new THREE.Fog(0x0b0f14, 18, 95);
+scene.background = new THREE.Color(0x0b0f14);
 
 const camera = new THREE.PerspectiveCamera(
   80,
@@ -31,16 +32,6 @@ const camera = new THREE.PerspectiveCamera(
   500
 );
 
-const hemiLight = new THREE.HemisphereLight(0xbfe5ff, 0x25313c, 1.45);
-scene.add(hemiLight);
-
-const dirLight = new THREE.DirectionalLight(0xfff4d6, 1.35);
-dirLight.position.set(8, 16, 10);
-scene.add(dirLight);
-
-const fillLight = new THREE.AmbientLight(0x9ac6e0, 0.35);
-scene.add(fillLight);
-
 const oilRigMap = new OilRigMap(scene);
 await oilRigMap.initialize();
 const hud = new HUDManager();
@@ -48,46 +39,43 @@ const input = new InputManager(renderer.domElement);
 const player = new PlayerController(camera, input, oilRigMap);
 const gameState = new GameStateMachine();
 
-const enemySpawnConfigs = [
-  {
-    typeName: 'Oil Zombie',
-    position: { x: 0, z: -16 },
-    color: 0x6a3dad,
-    health: 100,
-    speed: 2.8,
-    attackRadius: 2.2,
-    damagePerSecond: 10,
-  },
-  {
-    typeName: 'Oil Brute',
-    position: { x: 6, z: -26 },
-    color: 0xd04f2a,
-    health: 90,
-    speed: 3.2,
-    attackRadius: 2.4,
-    damagePerSecond: 12,
-  },
-  {
-    typeName: 'Oil Stalker',
-    position: { x: -8, z: -34 },
-    color: 0x00897b,
-    health: 110,
-    speed: 2.6,
-    attackRadius: 2.6,
-    damagePerSecond: 14,
-  },
-];
+const oilZombieSpawner = new OilZombieSpawner(oilRigMap);
+const enemySpawnCount = 10;
+const enemySpawnConfigs = oilZombieSpawner.spawn(enemySpawnCount, {
+  playerPosition: { x: camera.position.x, z: camera.position.z },
+  minDistanceFromPlayer: 24,
+});
 
 const enemyManager = new EnemyManager(scene, hud, enemySpawnConfigs, 0.55, oilRigMap);
 const shootingSystem = new ShootingSystem(scene, camera, enemyManager, oilRigMap);
+const maxEnemyRangedRadius = enemySpawnConfigs.reduce(
+  (maxRadius, config) => Math.max(maxRadius, config.rangedAttackRadius ?? 16),
+  16
+);
+shootingSystem.maxLaserRange = maxEnemyRangedRadius + 2.6;
 const rigFailure = new RigFailureSystem(360);
 const drillObjective = new DrillShaftObjective(oilRigMap.getDrillPosition(), 4.2);
 const repairInteraction = new RepairInteraction(4.5);
 const maxDrillDurability = 100;
+const respawnPosition = new THREE.Vector3(0, player.playerHeight, 10);
 
 let playerHealth = maxPlayerHealth;
 let dropSequenceRemaining = 2;
 let hitboxDebugVisible = true;
+let failureReasonText = 'Operator down.';
+let deathAnimationTime = 0;
+let deathAnimationStarted = false;
+const deathAnimationDuration = 1.1;
+const deathSimulationDuration = 2.5;
+let deathSimulationRemaining = 0;
+const deathStartPosition = new THREE.Vector3();
+const deathTargetPosition = new THREE.Vector3();
+const deathStartRotation = new THREE.Vector2();
+const deathTargetRotation = new THREE.Vector2();
+let cameraShakeStrength = 0;
+let cameraShakeTime = 0;
+let appliedShakePitch = 0;
+let appliedShakeRoll = 0;
 
 oilRigMap.setHitboxDebugVisible(hitboxDebugVisible);
 hud.showMessage('Hitbox debug: ON (press F2 to toggle)');
@@ -95,17 +83,67 @@ hud.showMessage('Hitbox debug: ON (press F2 to toggle)');
 hud.setHealth(playerHealth, maxPlayerHealth);
 hud.setObjective('Drop into the oil rig');
 hud.setDrillDurability(maxDrillDurability, maxDrillDurability);
+hud.setDeathDim(0);
+hud.setWeaponCooldown(0);
+
+function createEnemySpawnSet(playerPos) {
+  return oilZombieSpawner.spawn(enemySpawnCount, {
+    playerPosition: { x: playerPos.x, z: playerPos.z },
+    minDistanceFromPlayer: 24,
+  });
+}
+
+function beginFailureSequence(reasonText) {
+  failureReasonText = reasonText;
+  deathAnimationTime = 0;
+  deathAnimationStarted = false;
+  deathSimulationRemaining = deathSimulationDuration;
+  gameState.setState('failure');
+}
+
+function respawnGame() {
+  rigFailure.reset();
+  repairInteraction.reset();
+  drillObjective.reset();
+
+  playerHealth = maxPlayerHealth;
+  hud.setHealth(playerHealth, maxPlayerHealth);
+  hud.setObjective('Drop into the oil rig');
+  hud.setRepairProgress(false, 0, 'Move to drill shaft');
+  hud.setRigFailure(rigFailure.remainingSeconds, rigFailure.getRatio());
+  hud.setDrillDurability(maxDrillDurability, maxDrillDurability);
+
+  const spawnSet = createEnemySpawnSet(respawnPosition);
+  enemyManager.reset(spawnSet);
+
+  cameraShakeStrength = 0;
+  cameraShakeTime = 0;
+  appliedShakePitch = 0;
+  appliedShakeRoll = 0;
+  deathAnimationStarted = false;
+  deathAnimationTime = 0;
+  deathSimulationRemaining = 0;
+
+  player.respawn(respawnPosition.x, respawnPosition.z, Math.PI, 0);
+  dropSequenceRemaining = 2;
+  hud.hideDeathScreen();
+  hud.setDeathDim(0);
+  gameState.setState('in-game');
+  input.requestPointerLock();
+}
 
 function applyDamage(amount) {
   playerHealth = Math.max(0, playerHealth - amount);
   hud.setHealth(playerHealth, maxPlayerHealth);
   hud.triggerDamageFlash(amount / 40);
+  hud.triggerHitBorder(amount / 32);
+  cameraShakeStrength = Math.min(1, cameraShakeStrength + amount / 46);
 
   const hitOrigin = camera.position.clone().add(new THREE.Vector3(0, -0.15, 0));
   shootingSystem.spawnPlayerHitParticles(hitOrigin);
 
   if (playerHealth === 0 && !gameState.is('failure')) {
-    gameState.setState('failure');
+    beginFailureSequence('You were overwhelmed by hostile oil creatures.');
   }
 }
 
@@ -126,6 +164,8 @@ gameState.onChange((state) => {
   if (state === 'failure') {
     hud.showMessage('Rig failure detected. Mission failed.');
     hud.setObjective('Mission failed');
+    hud.showDeathScreen(failureReasonText);
+    document.exitPointerLock?.();
   }
 });
 
@@ -137,6 +177,10 @@ renderer.domElement.addEventListener('click', () => {
 
 hud.onStartClick(() => {
   input.requestPointerLock();
+});
+
+hud.onRespawnClick(() => {
+  respawnGame();
 });
 
 input.onPointerLockStateChange((isLocked) => {
@@ -247,6 +291,11 @@ function updateObjectiveFlow(delta) {
 function animate() {
   const delta = clock.getDelta();
 
+  camera.rotation.x -= appliedShakePitch;
+  camera.rotation.z -= appliedShakeRoll;
+  appliedShakePitch = 0;
+  appliedShakeRoll = 0;
+
   if (gameState.is('in-game')) {
     if (dropSequenceRemaining > 0) {
       updateDropSequence(delta);
@@ -257,7 +306,7 @@ function animate() {
       rigFailure.update(delta, dangerMultiplier);
 
       if (rigFailure.isFailed()) {
-        gameState.setState('failure');
+        beginFailureSequence('Rig stability dropped to zero.');
       }
 
       const damageTaken = enemyManager.update(delta, camera.position);
@@ -267,6 +316,35 @@ function animate() {
 
       updateObjectiveFlow(delta);
     }
+  } else if (gameState.is('failure')) {
+    if (!deathAnimationStarted) {
+      deathAnimationStarted = true;
+      deathAnimationTime = 0;
+    }
+
+    if (deathSimulationRemaining > 0) {
+      enemyManager.update(delta, camera.position);
+      deathSimulationRemaining = Math.max(0, deathSimulationRemaining - delta);
+    }
+
+    deathAnimationTime = Math.min(deathAnimationDuration, deathAnimationTime + delta);
+    const t = THREE.MathUtils.smoothstep(deathAnimationTime / deathAnimationDuration, 0, 1);
+    hud.setDeathDim(0.42 + t * 0.3);
+  }
+
+  if (gameState.is('in-game') && cameraShakeStrength > 0.0001) {
+    cameraShakeTime += delta;
+    const noisePitch = Math.sin(cameraShakeTime * 78) * 0.006 * cameraShakeStrength;
+    const noiseRoll = Math.cos(cameraShakeTime * 64) * 0.0045 * cameraShakeStrength;
+    const randomPitch = (Math.random() - 0.5) * 0.0032 * cameraShakeStrength;
+    const randomRoll = (Math.random() - 0.5) * 0.0025 * cameraShakeStrength;
+    appliedShakePitch = noisePitch + randomPitch;
+    appliedShakeRoll = noiseRoll + randomRoll;
+    camera.rotation.x += appliedShakePitch;
+    camera.rotation.z += appliedShakeRoll;
+    cameraShakeStrength = Math.max(0, cameraShakeStrength - delta * 2.9);
+  } else {
+    cameraShakeStrength = Math.max(0, cameraShakeStrength - delta * 3.8);
   }
 
   oilRigMap.update(delta);
@@ -275,7 +353,9 @@ function animate() {
 
   hud.updateFps(delta);
   hud.setInputDebug(input.getPressedKeysText(), enemyManager.getAliveCount());
+  hud.setWeaponCooldown(shootingSystem.getCooldownRatio());
   hud.updateDamageFlash(delta);
+  hud.updateHitBorder(delta);
   hud.updateDrillMarker(oilRigMap.getDrillPosition(), camera, camera.position);
   hud.setRigFailure(rigFailure.remainingSeconds, rigFailure.getRatio());
   hud.setDrillDurability(rigFailure.getRatio() * maxDrillDurability, maxDrillDurability);
