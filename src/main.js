@@ -13,6 +13,7 @@ import { RepairInteraction } from './objective/RepairInteraction.js';
 
 const app = document.getElementById('app');
 const maxPlayerHealth = 100;
+const healthRegenPerSecond = 1;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -46,6 +47,10 @@ const levelConfigs = [
     enemyCount: 8,
     map: {
       hasWallsRoof: false,
+      hasLightGrid: false,
+      hasFire: false,
+      useBlueSky: true,
+      useGlobalLights: true,
     },
   },
   {
@@ -192,9 +197,9 @@ function respawnGame() {
 function applyDamage(amount) {
   playerHealth = Math.max(0, playerHealth - amount);
   hud.setHealth(playerHealth, maxPlayerHealth);
-  hud.triggerDamageFlash(amount / 40);
+  hud.triggerDamageFlash(amount / 20);
   hud.triggerHitBorder(amount / 32);
-  cameraShakeStrength = Math.min(1, cameraShakeStrength + amount / 46);
+  cameraShakeStrength = Math.min(1, cameraShakeStrength + amount / 24);
 
   const hitOrigin = camera.position.clone().add(new THREE.Vector3(0, -0.15, 0));
   shootingSystem.spawnPlayerHitParticles(hitOrigin);
@@ -202,6 +207,15 @@ function applyDamage(amount) {
   if (playerHealth === 0 && !gameState.is('failure')) {
     beginFailureSequence('You were overwhelmed by hostile oil creatures.');
   }
+}
+
+function applyHealthRegen(delta) {
+  if (playerHealth <= 0 || playerHealth >= maxPlayerHealth) {
+    return;
+  }
+
+  playerHealth = Math.min(maxPlayerHealth, playerHealth + healthRegenPerSecond * delta);
+  hud.setHealth(playerHealth, maxPlayerHealth);
 }
 
 gameState.onChange((state) => {
@@ -358,9 +372,15 @@ function animate() {
       }
 
       const damageTaken = enemyManager.update(delta, camera.position);
+      const deathEvents = enemyManager.consumeDeathEvents();
+      for (const deathEvent of deathEvents) {
+        cameraShakeStrength = Math.min(1, cameraShakeStrength + (deathEvent.shakeStrength ?? 0.12));
+      }
       if (damageTaken > 0 && playerHealth > 0) {
         applyDamage(damageTaken);
       }
+
+      applyHealthRegen(delta);
 
       updateObjectiveFlow();
     }

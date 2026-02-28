@@ -427,7 +427,7 @@ export class HUDManager {
 
   updateDamageFlash(delta) {
     this.damageFlashStrength = Math.max(0, this.damageFlashStrength - delta * 2.2);
-    this.damageFlash.style.background = `rgba(255, 50, 50, ${this.damageFlashStrength * 0.25})`;
+    this.damageFlash.style.background = `rgba(255, 46, 46, ${this.damageFlashStrength * 0.42})`;
   }
 
   triggerHitBorder(normalizedAmount) {

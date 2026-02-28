@@ -4,7 +4,7 @@ export class OilZombieSpawner {
     this.archetypes = [
       {
         typeName: 'Oil Monster',
-        color: 0x6a3dad,
+        color: 0x7a52c7,
         health: 100,
         speed: 2.8,
         attackRadius: 2.2,
@@ -13,10 +13,15 @@ export class OilZombieSpawner {
         coalShotCooldown: 1.55,
         coalProjectileSpeed: 12,
         coalDamage: 9,
+        bodySize: {
+          width: 1.2,
+          height: 2.4,
+          depth: 1.2,
+        },
       },
       {
         typeName: 'Oil Brute',
-        color: 0xd04f2a,
+        color: 0xd86a2f,
         health: 120,
         speed: 2.35,
         attackRadius: 2.55,
@@ -25,10 +30,15 @@ export class OilZombieSpawner {
         coalShotCooldown: 1.85,
         coalProjectileSpeed: 11,
         coalDamage: 12,
+        bodySize: {
+          width: 1.7,
+          height: 2.0,
+          depth: 1.7,
+        },
       },
       {
         typeName: 'Oil Stalker',
-        color: 0x00897b,
+        color: 0x15ad93,
         health: 85,
         speed: 3.15,
         attackRadius: 2.1,
@@ -37,6 +47,11 @@ export class OilZombieSpawner {
         coalShotCooldown: 1.35,
         coalProjectileSpeed: 13.5,
         coalDamage: 8,
+        bodySize: {
+          width: 0.85,
+          height: 3.0,
+          depth: 0.85,
+        },
       },
     ];
   }

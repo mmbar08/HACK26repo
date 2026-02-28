@@ -56,7 +56,9 @@ export class EnemyManager {
     this.hotCoalImpacts = [];
     this.hotCoalTrails = [];
     this.hotCoalMuzzleBursts = [];
+    this.enemyDeathBursts = [];
     this.oilGoopDripTrails = [];
+    this.deathEvents = [];
     this.projectileCollider = new THREE.Box3();
     this.projectileCollisionSize = new THREE.Vector3(0.42, 0.42, 0.42);
     this.projectilePrevPosition = new THREE.Vector3();
@@ -94,8 +96,11 @@ export class EnemyManager {
   }
 
   spawn(config) {
+    const bodyWidth = config.bodySize?.width ?? 1.2;
+    const bodyHeight = config.bodySize?.height ?? 2.4;
+    const bodyDepth = config.bodySize?.depth ?? 1.2;
     const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(1.2, 2.4, 1.2),
+      new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyDepth),
       new THREE.MeshStandardMaterial({
         color: config.color,
         roughness: 0.85,
@@ -103,10 +108,13 @@ export class EnemyManager {
       })
     );
 
-    mesh.position.set(config.position.x, 1.2, config.position.z);
+    mesh.position.set(config.position.x, bodyHeight * 0.5, config.position.z);
     this.scene.add(mesh);
     const ui = createEnemyUi(config.typeName);
     const goopEmitter = null;
+
+    const collisionSize = new THREE.Vector3(bodyWidth * 1.35, bodyHeight, bodyDepth * 1.35);
+    const collisionRadius = Math.max(bodyWidth, bodyDepth) * 0.66;
 
     this.enemies.push({
       id: this.enemyId++,
@@ -126,12 +134,86 @@ export class EnemyManager {
       holdDistance: config.holdDistance ?? (config.attackRadius + 2.3),
       coalDamage: config.coalDamage ?? 10,
       lastCoalShotTime: -Math.random() * 1.5,
-      collisionRadius: 0.8,
+      collisionRadius,
+      collisionSize,
+      uiHeightOffset: Math.max(1.65, bodyHeight * 0.92),
       alive: true,
       goopEmitter,
       goopTrailAccumulator: Math.random() * 0.045,
       ui,
     });
+  }
+
+  spawnEnemyDeathBurst(enemy) {
+    const count = 26;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3);
+    const velocities = [];
+    const baseY = enemy.mesh.position.y;
+
+    for (let i = 0; i < count; i += 1) {
+      const idx = i * 3;
+      positions[idx] = enemy.mesh.position.x + (Math.random() - 0.5) * 0.5;
+      positions[idx + 1] = baseY + (Math.random() - 0.35) * 0.75;
+      positions[idx + 2] = enemy.mesh.position.z + (Math.random() - 0.5) * 0.5;
+      velocities.push(
+        new THREE.Vector3(
+          (Math.random() - 0.5) * 2.8,
+          0.8 + Math.random() * 2.4,
+          (Math.random() - 0.5) * 2.8
+        )
+      );
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: enemy.color,
+      size: 0.14,
+      transparent: true,
+      opacity: 0.94,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+    });
+    const points = new THREE.Points(geometry, material);
+    this.scene.add(points);
+
+    this.enemyDeathBursts.push({
+      points,
+      geometry,
+      material,
+      positions,
+      velocities,
+      age: 0,
+      life: 0.55,
+    });
+  }
+
+  updateEnemyDeathBursts(delta) {
+    for (let i = this.enemyDeathBursts.length - 1; i >= 0; i -= 1) {
+      const burst = this.enemyDeathBursts[i];
+      burst.age += delta;
+      if (burst.age >= burst.life) {
+        this.scene.remove(burst.points);
+        burst.geometry.dispose();
+        burst.material.dispose();
+        this.enemyDeathBursts.splice(i, 1);
+        continue;
+      }
+
+      const decay = 1 - burst.age / burst.life;
+      const attr = burst.geometry.attributes.position;
+      for (let p = 0; p < burst.velocities.length; p += 1) {
+        const idx = p * 3;
+        const velocity = burst.velocities[p];
+        velocity.y -= 6.2 * delta;
+        burst.positions[idx] += velocity.x * delta;
+        burst.positions[idx + 1] += velocity.y * delta;
+        burst.positions[idx + 2] += velocity.z * delta;
+      }
+
+      attr.needsUpdate = true;
+      burst.material.opacity = 0.94 * decay;
+    }
   }
 
   createOilGoopEmitter() {
@@ -351,7 +433,7 @@ export class EnemyManager {
       const hasSight = inSpotRange && this.hasLineOfSight(enemy, playerPosition);
 
       if (this.worldMap && typeof this.worldMap.getGroundHeightAt === 'function') {
-        const enemyHeight = this.enemyCollisionSize.y;
+        const enemyHeight = enemy.collisionSize?.y ?? this.enemyCollisionSize.y;
         const topProbeY = enemy.mesh.position.y + enemyHeight * 0.5;
         const groundHeight = this.worldMap.getGroundHeightAt(
           enemy.mesh.position.x,
@@ -388,13 +470,13 @@ export class EnemyManager {
 
         this.tempPosition.copy(enemy.mesh.position);
         this.tempPosition.x += this.chaseDirection.x * moveStep;
-        if (!this.collidesWithWorld(this.tempPosition, enemy.mesh.position)) {
+        if (!this.collidesWithWorld(enemy, this.tempPosition, enemy.mesh.position)) {
           enemy.mesh.position.x = this.tempPosition.x;
         }
 
         this.tempPosition.copy(enemy.mesh.position);
         this.tempPosition.z += this.chaseDirection.z * moveStep;
-        if (!this.collidesWithWorld(this.tempPosition, enemy.mesh.position)) {
+        if (!this.collidesWithWorld(enemy, this.tempPosition, enemy.mesh.position)) {
           enemy.mesh.position.z = this.tempPosition.z;
         }
 
@@ -421,6 +503,7 @@ export class EnemyManager {
     this.updateHotCoalImpacts(delta);
     this.updateHotCoalTrails(delta);
     this.updateHotCoalMuzzleBursts(delta);
+    this.updateEnemyDeathBursts(delta);
     this.updateOilGoopDripTrails(delta);
 
     return totalDamage;
@@ -498,7 +581,7 @@ export class EnemyManager {
     );
 
     projectileMesh.position.copy(enemy.mesh.position);
-    projectileMesh.position.y += 1.15;
+    projectileMesh.position.y += Math.max(0.95, (enemy.collisionSize?.y ?? 2.4) * 0.44);
     this.scene.add(projectileMesh);
 
     const directDistance = projectileMesh.position.distanceTo(playerPosition);
@@ -813,12 +896,13 @@ export class EnemyManager {
     this.hotCoals.splice(index, 1);
   }
 
-  collidesWithWorld(nextPosition, currentPosition) {
+  collidesWithWorld(enemy, nextPosition, currentPosition) {
     if (!this.worldMap) {
       return false;
     }
 
-    const bodyHeight = this.enemyCollisionSize.y;
+    const collisionSize = enemy?.collisionSize ?? this.enemyCollisionSize;
+    const bodyHeight = collisionSize.y;
     this.nextCollisionProbe.copy(nextPosition);
     this.nextCollisionProbe.y += bodyHeight * 0.5;
 
@@ -828,7 +912,7 @@ export class EnemyManager {
     return this.worldMap.collidesWithWorld(
       this.nextCollisionProbe,
       this.enemyCollider,
-      this.enemyCollisionSize,
+      collisionSize,
       this.currentCollisionProbe,
       'square'
     );
@@ -887,9 +971,24 @@ export class EnemyManager {
 
     if (targetEnemy.health === 0) {
       targetEnemy.alive = false;
+      this.spawnEnemyDeathBurst(targetEnemy);
+      this.deathEvents.push({
+        position: targetEnemy.mesh.position.clone(),
+        shakeStrength: 0.16,
+      });
       targetEnemy.mesh.visible = false;
       targetEnemy.ui.container.style.display = 'none';
     }
+  }
+
+  consumeDeathEvents() {
+    if (!this.deathEvents.length) {
+      return [];
+    }
+
+    const events = this.deathEvents;
+    this.deathEvents = [];
+    return events;
   }
 
   shoot(raycaster, maxDistance = Infinity) {
@@ -912,7 +1011,7 @@ export class EnemyManager {
       }
 
       this.clipSpaceVector.copy(enemy.mesh.position);
-      this.clipSpaceVector.y += 2.2;
+      this.clipSpaceVector.y += enemy.uiHeightOffset ?? 2.2;
       this.clipSpaceVector.project(camera);
       const isVisible = this.clipSpaceVector.z >= -1 && this.clipSpaceVector.z <= 1;
 
@@ -984,12 +1083,20 @@ export class EnemyManager {
     }
     this.hotCoalMuzzleBursts = [];
 
+    for (const burst of this.enemyDeathBursts) {
+      this.scene.remove(burst.points);
+      burst.geometry.dispose();
+      burst.material.dispose();
+    }
+    this.enemyDeathBursts = [];
+
     for (const trail of this.oilGoopDripTrails) {
       this.scene.remove(trail.points);
       trail.geometry.dispose();
       trail.material.dispose();
     }
     this.oilGoopDripTrails = [];
+    this.deathEvents = [];
   }
 
   reset(spawnConfigs) {

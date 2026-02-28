@@ -80,13 +80,35 @@ export class OilRigMap {
     this.roomHeight = 21.5;
     this.wallThickness = 1.4;
     this.ceilingLights = [];
+    this.ceilingLightFixtures = [];
     this.windowLights = [];
     this.windowExteriorLights = [];
     this.interiorStructures = [];
     this.interiorColliders = [];
     this.levelConfig = {
       hasWallsRoof: true,
+      hasLightGrid: true,
+      hasFire: true,
+      useBlueSky: false,
+      useGlobalLights: false,
     };
+    this.defaultBackgroundColor = this.scene.background?.isColor
+      ? this.scene.background.clone()
+      : new THREE.Color(0x0b0f14);
+    this.defaultFogColor = this.scene.fog?.isFog
+      ? this.scene.fog.color.clone()
+      : new THREE.Color(0x0b0f14);
+    this.defaultFogNear = this.scene.fog?.isFog ? this.scene.fog.near : 18;
+    this.defaultFogFar = this.scene.fog?.isFog ? this.scene.fog.far : 95;
+
+    this.globalSkyLight = new THREE.HemisphereLight(0x90c9ff, 0x5e7a95, 1.1);
+    this.globalSkyLight.visible = false;
+    this.scene.add(this.globalSkyLight);
+
+    this.globalSunLight = new THREE.DirectionalLight(0xe4f3ff, 1.35);
+    this.globalSunLight.position.set(36, 88, 28);
+    this.globalSunLight.visible = false;
+    this.scene.add(this.globalSunLight);
     this.rampMeshes = [];
     this.invisibleBlockerDebugVisible = false;
     this.invisibleBlockerHelpers = [];
@@ -303,6 +325,52 @@ export class OilRigMap {
     };
 
     this.setInteriorEnabled(this.levelConfig.hasWallsRoof !== false);
+    this.setLightGridEnabled(this.levelConfig.hasLightGrid !== false);
+    this.setFireEnabled(this.levelConfig.hasFire !== false);
+    this.setGlobalLightingEnabled(this.levelConfig.useGlobalLights === true);
+    this.setSkyEnvironment(this.levelConfig.useBlueSky === true);
+  }
+
+  setLightGridEnabled(enabled) {
+    for (const fixture of this.ceilingLightFixtures) {
+      fixture.visible = enabled;
+    }
+
+    for (const light of this.ceilingLights) {
+      light.visible = enabled;
+    }
+  }
+
+  setFireEnabled(enabled) {
+    for (const emitter of this.fireEmitters) {
+      emitter.light.visible = enabled;
+    }
+
+    for (const particleSystem of this.fireParticleSystems) {
+      if (particleSystem?.points) {
+        particleSystem.points.visible = enabled;
+      }
+    }
+  }
+
+  setGlobalLightingEnabled(enabled) {
+    this.globalSkyLight.visible = enabled;
+    this.globalSunLight.visible = enabled;
+  }
+
+  setSkyEnvironment(useBlueSky) {
+    if (useBlueSky) {
+      this.scene.background = new THREE.Color(0x78bfff);
+      this.scene.fog = new THREE.Fog(0x8ac7ff, 62, 250);
+      return;
+    }
+
+    this.scene.background = this.defaultBackgroundColor.clone();
+    this.scene.fog = new THREE.Fog(
+      this.defaultFogColor.clone(),
+      this.defaultFogNear,
+      this.defaultFogFar
+    );
   }
 
   setInteriorEnabled(enabled) {
@@ -359,6 +427,7 @@ export class OilRigMap {
         );
         fixture.position.set(x, fixtureY, z);
         this.scene.add(fixture);
+        this.ceilingLightFixtures.push(fixture);
 
         const glowLight = new THREE.PointLight(0xdde9ff, 130, 48, 1.7);
         glowLight.position.set(x, fixtureY - 0.35, z);
@@ -528,6 +597,10 @@ export class OilRigMap {
   }
 
   updateFireEmitters(delta) {
+    if (this.levelConfig.hasFire === false) {
+      return;
+    }
+
     for (let i = 0; i < this.fireEmitters.length; i += 1) {
       const emitter = this.fireEmitters[i];
       emitter.light.intensity = emitter.baseIntensity;
@@ -572,6 +645,56 @@ export class OilRigMap {
     }
 
     geometry.setAttribute('uv2', geometry.attributes.uv.clone());
+  }
+
+  createLitMaterialFromSource(sourceMaterial) {
+    if (!sourceMaterial) {
+      return null;
+    }
+
+    if (sourceMaterial.isMeshStandardMaterial || sourceMaterial.isMeshPhysicalMaterial) {
+      return sourceMaterial;
+    }
+
+    const litMaterial = new THREE.MeshStandardMaterial({
+      color: sourceMaterial.color?.clone?.() ?? new THREE.Color(0xffffff),
+      map: sourceMaterial.map ?? null,
+      transparent: sourceMaterial.transparent ?? false,
+      opacity: sourceMaterial.opacity ?? 1,
+      alphaTest: sourceMaterial.alphaTest ?? 0,
+      side: sourceMaterial.side ?? THREE.FrontSide,
+      roughness: sourceMaterial.roughness ?? 0.9,
+      metalness: sourceMaterial.metalness ?? 0.08,
+      emissive: sourceMaterial.emissive?.clone?.() ?? new THREE.Color(0x000000),
+      emissiveIntensity: sourceMaterial.emissiveIntensity ?? 1,
+      normalMap: sourceMaterial.normalMap ?? null,
+      normalScale: sourceMaterial.normalScale?.clone?.() ?? new THREE.Vector2(1, 1),
+      aoMap: sourceMaterial.aoMap ?? null,
+      roughnessMap: sourceMaterial.roughnessMap ?? null,
+      metalnessMap: sourceMaterial.metalnessMap ?? null,
+    });
+
+    litMaterial.depthWrite = sourceMaterial.depthWrite ?? true;
+    litMaterial.visible = sourceMaterial.visible ?? true;
+    litMaterial.name = sourceMaterial.name;
+    return litMaterial;
+  }
+
+  ensureLitPropMaterials(root) {
+    root.traverse((child) => {
+      if (!child?.isMesh || !child.material) {
+        return;
+      }
+
+      if (Array.isArray(child.material)) {
+        child.material = child.material.map((material) =>
+          this.createLitMaterialFromSource(material)
+        );
+        return;
+      }
+
+      child.material = this.createLitMaterialFromSource(child.material);
+    });
   }
 
   applyPbrSetToMaterial(material, pbrSet, options = {}) {
@@ -955,6 +1078,7 @@ export class OilRigMap {
           randomScaleFactor *
           this.modelSpawnScaleMultiplier;
         prop.scale.setScalar(modelScale);
+        this.ensureLitPropMaterials(prop);
         this.normalizeSpawnedModelSize(prop, chosenTemplate.config);
 
         if (!this.hasRenderableMesh(prop)) {
