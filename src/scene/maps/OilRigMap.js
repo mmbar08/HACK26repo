@@ -16,10 +16,14 @@ export class OilRigMap {
     this.raycastObjects = [];
     this.horizontalSampleOffsets = [
       new THREE.Vector2(0, 0),
-      new THREE.Vector2(0.65, 0),
-      new THREE.Vector2(-0.65, 0),
-      new THREE.Vector2(0, 0.65),
-      new THREE.Vector2(0, -0.65),
+      new THREE.Vector2(1, 0),
+      new THREE.Vector2(-1, 0),
+      new THREE.Vector2(0, 1),
+      new THREE.Vector2(0, -1),
+      new THREE.Vector2(0.707, 0.707),
+      new THREE.Vector2(-0.707, 0.707),
+      new THREE.Vector2(0.707, -0.707),
+      new THREE.Vector2(-0.707, -0.707),
     ];
     this.tempColliderMatrix = new THREE.Matrix4();
     this.tempInverseMatrix = new THREE.Matrix4();
@@ -75,7 +79,7 @@ export class OilRigMap {
       },
       {
         url: '/assets/models/crate_box.glb',
-        scale: 100,
+        scale: 0.5,
         randomMin: 0.9,
         randomMax: 1.25,
         colliderScale: 0.92,
@@ -89,7 +93,7 @@ export class OilRigMap {
       },
       {
         url: '/assets/models/wooden_crate.glb',
-        scale: 2,
+        scale: 0.6,
         randomMin: 0.9,
         randomMax: 1.25,
         colliderScale: 0.92,
@@ -579,8 +583,16 @@ export class OilRigMap {
       }
     }
 
-    const spawnDistance = Math.hypot(x, z);
-    const drillDistance = Math.hypot(x - this.drillShaft.position.x, z - this.drillShaft.position.z);
+    const closestSpawnX = THREE.MathUtils.clamp(0, minX, maxX);
+    const closestSpawnZ = THREE.MathUtils.clamp(0, minZ, maxZ);
+    const spawnDistance = Math.hypot(closestSpawnX, closestSpawnZ);
+
+    const closestDrillX = THREE.MathUtils.clamp(this.drillShaft.position.x, minX, maxX);
+    const closestDrillZ = THREE.MathUtils.clamp(this.drillShaft.position.z, minZ, maxZ);
+    const drillDistance = Math.hypot(
+      closestDrillX - this.drillShaft.position.x,
+      closestDrillZ - this.drillShaft.position.z
+    );
     if (spawnDistance < this.spawnProtectionRadius || drillDistance < this.drillProtectionRadius) {
       return false;
     }
@@ -1028,14 +1040,8 @@ export class OilRigMap {
 
     const min = this.playerCollisionBox.min;
     const max = this.playerCollisionBox.max;
-    const feetY = nextPosition.y - bodyHeight;
-    const supportSurfaceEpsilon = 0.08;
 
     for (const collider of this.hullColliderEntries) {
-      if (feetY >= collider.maxY - supportSurfaceEpsilon) {
-        continue;
-      }
-
       const broad = collider.broadphase;
       const separated =
         max.x <= broad.minX ||
@@ -1066,8 +1072,8 @@ export class OilRigMap {
           this.tempSphereCenter.applyMatrix4(collider.inverseWorldMatrix);
 
           if (
-            this.tempSphereCenter.y < collider.minY - radius ||
-            this.tempSphereCenter.y > collider.maxY + radius
+            this.tempSphereCenter.y <= collider.minY - radius ||
+            this.tempSphereCenter.y >= collider.maxY + radius - 0.01
           ) {
             continue;
           }
