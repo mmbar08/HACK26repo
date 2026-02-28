@@ -36,6 +36,19 @@ export class HUDManager {
     this.objectiveUi.textContent = 'Objective: Reach the drill shaft';
     document.body.appendChild(this.objectiveUi);
 
+    this.levelUi = document.createElement('div');
+    this.levelUi.style.position = 'fixed';
+    this.levelUi.style.left = '12px';
+    this.levelUi.style.top = '54px';
+    this.levelUi.style.padding = '7px 10px';
+    this.levelUi.style.background = 'rgba(0, 0, 0, 0.45)';
+    this.levelUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    this.levelUi.style.color = '#e6f4f1';
+    this.levelUi.style.fontFamily = 'system-ui, sans-serif';
+    this.levelUi.style.fontSize = '12px';
+    this.levelUi.textContent = 'Level: 1/1';
+    document.body.appendChild(this.levelUi);
+
     this.rigRiskUi = document.createElement('div');
     this.rigRiskUi.style.position = 'fixed';
     this.rigRiskUi.style.left = '12px';
@@ -355,6 +368,10 @@ export class HUDManager {
 
   setObjective(text) {
     this.objectiveUi.textContent = `Objective: ${text}`;
+  }
+
+  setLevelStatus(currentLevel, totalLevels) {
+    this.levelUi.textContent = `Level: ${currentLevel}/${totalLevels}`;
   }
 
   setRigFailure(remainingSeconds, ratio) {

@@ -56,6 +56,7 @@ export class EnemyManager {
     this.hotCoalImpacts = [];
     this.hotCoalTrails = [];
     this.hotCoalMuzzleBursts = [];
+    this.oilGoopDripTrails = [];
     this.projectileCollider = new THREE.Box3();
     this.projectileCollisionSize = new THREE.Vector3(0.42, 0.42, 0.42);
     this.projectilePrevPosition = new THREE.Vector3();
@@ -105,8 +106,7 @@ export class EnemyManager {
     mesh.position.set(config.position.x, 1.2, config.position.z);
     this.scene.add(mesh);
     const ui = createEnemyUi(config.typeName);
-    const goopEmitter = this.createOilGoopEmitter();
-    mesh.add(goopEmitter.points);
+    const goopEmitter = null;
 
     this.enemies.push({
       id: this.enemyId++,
@@ -121,7 +121,7 @@ export class EnemyManager {
       aiState: 'idle',
       lastSeenTime: -Infinity,
       rangedAttackRadius: config.rangedAttackRadius ?? 16,
-      coalShotCooldown: (config.coalShotCooldown ?? 1.6) * 0.58,
+      coalShotCooldown: (config.coalShotCooldown ?? 1.6) * 0.83,
       coalProjectileSpeed: (config.coalProjectileSpeed ?? 12) * 1.7,
       holdDistance: config.holdDistance ?? (config.attackRadius + 2.3),
       coalDamage: config.coalDamage ?? 10,
@@ -129,6 +129,7 @@ export class EnemyManager {
       collisionRadius: 0.8,
       alive: true,
       goopEmitter,
+      goopTrailAccumulator: Math.random() * 0.045,
       ui,
     });
   }
@@ -148,12 +149,12 @@ export class EnemyManager {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const material = new THREE.PointsMaterial({
-      color: 0x21191d,
-      size: 0.2,
+      color: 0x080708,
+      size: 0.22,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.92,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
     });
 
     const points = new THREE.Points(geometry, material);
@@ -171,7 +172,7 @@ export class EnemyManager {
   writeGoopEdgePosition(positions, idx) {
     const halfX = 0.61;
     const halfZ = 0.61;
-    const y = 0.15 + Math.random() * 2.05;
+    const y = 0.1 + Math.random() * 1.15;
 
     const edgeChoice = Math.floor(Math.random() * 4);
     if (edgeChoice === 0) {
@@ -193,11 +194,11 @@ export class EnemyManager {
 
   createGoopEdgeVelocity() {
     const direction = new THREE.Vector3(
-      (Math.random() - 0.5) * 1.3,
-      0.22 + Math.random() * 0.7,
-      (Math.random() - 0.5) * 1.3
+      (Math.random() - 0.5) * 0.55,
+      -(0.08 + Math.random() * 0.3),
+      (Math.random() - 0.5) * 0.55
     );
-    direction.normalize().multiplyScalar(0.42 + Math.random() * 0.62);
+    direction.normalize().multiplyScalar(0.14 + Math.random() * 0.22);
     return direction;
   }
 
@@ -218,13 +219,103 @@ export class EnemyManager {
         continue;
       }
 
-      velocities[i].y += 0.28 * delta;
+      velocities[i].y -= 0.06 * delta;
       positions[idx] += velocities[i].x * delta;
       positions[idx + 1] += velocities[i].y * delta;
       positions[idx + 2] += velocities[i].z * delta;
     }
 
     geometry.attributes.position.needsUpdate = true;
+  }
+
+  spawnOilGoopDripTrail(enemy) {
+    const count = 4;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3);
+    const velocities = [];
+
+    for (let i = 0; i < count; i += 1) {
+      const idx = i * 3;
+      const edge = Math.floor(Math.random() * 4);
+      const edgeOffset = (Math.random() - 0.5) * 0.9;
+      let localX = 0;
+      let localZ = 0;
+
+      if (edge === 0) {
+        localX = -0.58;
+        localZ = edgeOffset;
+      } else if (edge === 1) {
+        localX = 0.58;
+        localZ = edgeOffset;
+      } else if (edge === 2) {
+        localX = edgeOffset;
+        localZ = -0.58;
+      } else {
+        localX = edgeOffset;
+        localZ = 0.58;
+      }
+
+      positions[idx] = enemy.mesh.position.x + localX;
+      positions[idx + 1] = enemy.mesh.position.y - 0.2 + Math.random() * 0.6;
+      positions[idx + 2] = enemy.mesh.position.z + localZ;
+
+      velocities.push(
+        new THREE.Vector3(
+          (Math.random() - 0.5) * 0.065,
+          -(0.1 + Math.random() * 0.14),
+          (Math.random() - 0.5) * 0.065
+        )
+      );
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: 0x030304,
+      size: 0.135,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+    });
+    const points = new THREE.Points(geometry, material);
+    this.scene.add(points);
+
+    this.oilGoopDripTrails.push({
+      points,
+      geometry,
+      material,
+      positions,
+      velocities,
+      age: 0,
+      life: 0.62,
+    });
+  }
+
+  updateOilGoopDripTrails(delta) {
+    for (let i = this.oilGoopDripTrails.length - 1; i >= 0; i -= 1) {
+      const trail = this.oilGoopDripTrails[i];
+      trail.age += delta;
+      if (trail.age >= trail.life) {
+        this.scene.remove(trail.points);
+        trail.geometry.dispose();
+        trail.material.dispose();
+        this.oilGoopDripTrails.splice(i, 1);
+        continue;
+      }
+
+      const decay = 1 - trail.age / trail.life;
+      const attr = trail.geometry.attributes.position;
+      for (let p = 0; p < trail.velocities.length; p += 1) {
+        const idx = p * 3;
+        const velocity = trail.velocities[p];
+        velocity.y -= 0.2 * delta;
+        trail.positions[idx] += velocity.x * delta;
+        trail.positions[idx + 1] += velocity.y * delta;
+        trail.positions[idx + 2] += velocity.z * delta;
+      }
+      attr.needsUpdate = true;
+      trail.material.opacity = 0.92 * decay;
+    }
   }
 
   update(delta, playerPosition) {
@@ -245,7 +336,11 @@ export class EnemyManager {
         continue;
       }
 
-      this.updateOilGoopEmitter(enemy.goopEmitter, delta);
+      enemy.goopTrailAccumulator += delta;
+      if (enemy.goopTrailAccumulator >= 0.04) {
+        this.spawnOilGoopDripTrail(enemy);
+        enemy.goopTrailAccumulator = 0;
+      }
 
       this.tempVector.copy(playerPosition).sub(enemy.mesh.position).setY(0);
       const distance = this.tempVector.length();
@@ -326,6 +421,7 @@ export class EnemyManager {
     this.updateHotCoalImpacts(delta);
     this.updateHotCoalTrails(delta);
     this.updateHotCoalMuzzleBursts(delta);
+    this.updateOilGoopDripTrails(delta);
 
     return totalDamage;
   }
@@ -887,6 +983,13 @@ export class EnemyManager {
       burst.material.dispose();
     }
     this.hotCoalMuzzleBursts = [];
+
+    for (const trail of this.oilGoopDripTrails) {
+      this.scene.remove(trail.points);
+      trail.geometry.dispose();
+      trail.material.dispose();
+    }
+    this.oilGoopDripTrails = [];
   }
 
   reset(spawnConfigs) {

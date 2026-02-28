@@ -64,6 +64,7 @@ export class OilRigMap {
     this.levelSize = 130;
     this.spawnProtectionRadius = 18;
     this.drillProtectionRadius = 16;
+    this.centerPropExclusionRadius = 26;
     this.floorTextureRepeatScale = 8;
     this.elevatedPlatformCountMin = 4;
     this.elevatedPlatformCountMax = 7;
@@ -81,6 +82,14 @@ export class OilRigMap {
     this.ceilingLights = [];
     this.windowLights = [];
     this.windowExteriorLights = [];
+    this.interiorStructures = [];
+    this.interiorColliders = [];
+    this.levelConfig = {
+      hasWallsRoof: true,
+    };
+    this.rampMeshes = [];
+    this.invisibleBlockerDebugVisible = false;
+    this.invisibleBlockerHelpers = [];
     this.fireEmitters = [];
     this.fireParticleSystems = [];
     this.fireParticleCount = 22;
@@ -250,18 +259,81 @@ export class OilRigMap {
     roof.position.set(0, this.roomHeight + this.wallThickness * 0.5, 0);
 
     const structures = [northWall, southWall, eastWall, westWall, roof];
+    this.interiorStructures = structures;
     for (const mesh of structures) {
       this.scene.add(mesh);
       this.raycastObjects.push(mesh);
     }
 
-    this.addStaticColliderFromObject(northWall, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
-    this.addStaticColliderFromObject(southWall, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
-    this.addStaticColliderFromObject(eastWall, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
-    this.addStaticColliderFromObject(westWall, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
-    this.addStaticColliderFromObject(roof, { padding: 0.01, colliderScale: 1, color: 0xffb347 });
+    const northCollider = this.addStaticColliderFromObject(northWall, {
+      padding: 0.01,
+      colliderScale: 1,
+      color: 0xffb347,
+    });
+    const southCollider = this.addStaticColliderFromObject(southWall, {
+      padding: 0.01,
+      colliderScale: 1,
+      color: 0xffb347,
+    });
+    const eastCollider = this.addStaticColliderFromObject(eastWall, {
+      padding: 0.01,
+      colliderScale: 1,
+      color: 0xffb347,
+    });
+    const westCollider = this.addStaticColliderFromObject(westWall, {
+      padding: 0.01,
+      colliderScale: 1,
+      color: 0xffb347,
+    });
+    const roofCollider = this.addStaticColliderFromObject(roof, {
+      padding: 0.01,
+      colliderScale: 1,
+      color: 0xffb347,
+    });
+    this.interiorColliders = [northCollider, southCollider, eastCollider, westCollider, roofCollider]
+      .filter(Boolean);
 
     this.createCeilingLightGrid(interiorSize);
+  }
+
+  applyLevelConfig(config = {}) {
+    this.levelConfig = {
+      ...this.levelConfig,
+      ...config,
+    };
+
+    this.setInteriorEnabled(this.levelConfig.hasWallsRoof !== false);
+  }
+
+  setInteriorEnabled(enabled) {
+    for (const mesh of this.interiorStructures) {
+      mesh.visible = enabled;
+      if (enabled) {
+        this.addRaycastObject(mesh);
+      } else {
+        this.removeRaycastObject(mesh);
+      }
+    }
+
+    for (const collider of this.interiorColliders) {
+      if (!collider) {
+        continue;
+      }
+      collider.enabled = enabled;
+    }
+  }
+
+  addRaycastObject(object) {
+    if (!this.raycastObjects.includes(object)) {
+      this.raycastObjects.push(object);
+    }
+  }
+
+  removeRaycastObject(object) {
+    const index = this.raycastObjects.indexOf(object);
+    if (index >= 0) {
+      this.raycastObjects.splice(index, 1);
+    }
   }
 
   createCeilingLightGrid(interiorSize) {
@@ -812,9 +884,32 @@ export class OilRigMap {
     this.ensureUv2(rampMesh.geometry);
     rampMesh.position.set(originX, 0, originZ);
     rampMesh.rotation.y = rampRotationY;
+    rampMesh.userData.isRamp = true;
+    rampMesh.userData.rampIndex = this.rampSurfaces.length;
+
+    if (!Array.isArray(rampMesh.material)) {
+      rampMesh.material.transparent = false;
+      rampMesh.material.opacity = 1;
+      rampMesh.material.depthWrite = true;
+      rampMesh.material.alphaTest = 0;
+    }
+
+    if (!this.isRenderableMesh(rampMesh)) {
+      rampMesh.material = new THREE.MeshStandardMaterial({
+        color: 0x6b7378,
+        roughness: 0.9,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+      });
+
+      if (!this.isRenderableMesh(rampMesh)) {
+        return;
+      }
+    }
 
     this.scene.add(rampMesh);
     this.raycastObjects.push(rampMesh);
+    this.rampMeshes.push(rampMesh);
     this.addStaticColliderFromObject(rampMesh, {
       padding: 0.01,
       colliderScale: 1,
@@ -861,6 +956,10 @@ export class OilRigMap {
           this.modelSpawnScaleMultiplier;
         prop.scale.setScalar(modelScale);
         this.normalizeSpawnedModelSize(prop, chosenTemplate.config);
+
+        if (!this.hasRenderableMesh(prop)) {
+          continue;
+        }
       } else {
         prop = new THREE.Mesh(
           new THREE.CylinderGeometry(0.45, 0.45, 1.2, 12),
@@ -877,8 +976,15 @@ export class OilRigMap {
       }
 
       this.scene.add(prop);
-      this.raycastObjects.push(prop);
       prop.updateMatrixWorld(true);
+
+      const raycastMeshes = this.collectRenderableMeshes(prop);
+      if (!raycastMeshes.length) {
+        this.scene.remove(prop);
+        continue;
+      }
+
+      this.raycastObjects.push(...raycastMeshes);
       prop.traverse((child) => {
         if (child.isMesh) {
           child.matrixAutoUpdate = false;
@@ -889,6 +995,142 @@ export class OilRigMap {
         colliderScale: chosenTemplate?.config?.colliderScale ?? 0.9,
       });
     }
+  }
+
+  isRenderableMesh(mesh) {
+    if (!mesh?.isMesh || !mesh.visible || !mesh.geometry) {
+      return false;
+    }
+
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    if (!materials.length) {
+      return false;
+    }
+
+    return materials.some((material) => {
+      if (!material || material.visible === false || material.colorWrite === false) {
+        return false;
+      }
+
+       if (material.transparent === true && (material.opacity ?? 1) <= 0.08) {
+        return false;
+      }
+
+      const opacity = material.opacity ?? 1;
+      return opacity > 0.08;
+    });
+  }
+
+  clearInvisibleBlockerHelpers() {
+    for (const helper of this.invisibleBlockerHelpers) {
+      this.scene.remove(helper);
+      helper.geometry.dispose();
+      helper.material.dispose();
+    }
+    this.invisibleBlockerHelpers = [];
+  }
+
+  collectInvisibleBlockers() {
+    const blockers = [];
+    const seen = new Set();
+
+    for (const object of this.raycastObjects) {
+      if (!object?.isObject3D || seen.has(object.uuid)) {
+        continue;
+      }
+      seen.add(object.uuid);
+
+      if (!object.isMesh) {
+        continue;
+      }
+
+      if (this.isRenderableMesh(object)) {
+        continue;
+      }
+
+      blockers.push({
+        object,
+        type: object.userData?.isRamp ? 'ramp' : 'raycast-mesh',
+      });
+    }
+
+    for (const rampMesh of this.rampMeshes) {
+      if (!rampMesh?.isMesh) {
+        continue;
+      }
+
+      if (!this.isRenderableMesh(rampMesh) && !seen.has(rampMesh.uuid)) {
+        blockers.push({ object: rampMesh, type: 'ramp' });
+        seen.add(rampMesh.uuid);
+      }
+    }
+
+    return blockers;
+  }
+
+  refreshInvisibleBlockerDebugHelpers() {
+    this.clearInvisibleBlockerHelpers();
+    if (!this.invisibleBlockerDebugVisible) {
+      return;
+    }
+
+    const blockers = this.collectInvisibleBlockers();
+    for (const entry of blockers) {
+      const bounds = new THREE.Box3().setFromObject(entry.object);
+      if (!Number.isFinite(bounds.min.x)) {
+        continue;
+      }
+
+      const color = entry.type === 'ramp' ? 0xffa726 : 0xff3b30;
+      const helper = new THREE.Box3Helper(bounds, color);
+      this.scene.add(helper);
+      this.invisibleBlockerHelpers.push(helper);
+    }
+  }
+
+  setInvisibleBlockerDebugVisible(visible) {
+    this.invisibleBlockerDebugVisible = visible;
+    if (!visible) {
+      this.clearInvisibleBlockerHelpers();
+      return;
+    }
+
+    this.refreshInvisibleBlockerDebugHelpers();
+  }
+
+  getInvisibleBlockerDebugReport() {
+    const blockers = this.collectInvisibleBlockers();
+    const rampCount = blockers.filter((entry) => entry.type === 'ramp').length;
+    const meshCount = blockers.length - rampCount;
+    return {
+      total: blockers.length,
+      ramps: rampCount,
+      raycastMeshes: meshCount,
+    };
+  }
+
+  collectRenderableMeshes(root) {
+    const meshes = [];
+    root.traverse((child) => {
+      if (this.isRenderableMesh(child)) {
+        meshes.push(child);
+      }
+    });
+    return meshes;
+  }
+
+  hasRenderableMesh(root) {
+    let hasAny = false;
+    root.traverse((child) => {
+      if (hasAny) {
+        return;
+      }
+
+      if (this.isRenderableMesh(child)) {
+        hasAny = true;
+      }
+    });
+    return hasAny;
   }
 
   normalizeSpawnedModelSize(object3d, config = {}) {
@@ -954,6 +1196,10 @@ export class OilRigMap {
   }
 
   isValidPropPlacement(x, z, halfWidth, halfDepth, surface) {
+    if (Math.hypot(x, z) < this.centerPropExclusionRadius) {
+      return false;
+    }
+
     const minX = x - halfWidth;
     const maxX = x + halfWidth;
     const minZ = z - halfDepth;
@@ -1065,7 +1311,7 @@ export class OilRigMap {
 
     hullData.minY -= padding;
     hullData.maxY += padding;
-    this.registerHullCollider(object3d, hullData, color, false);
+    return this.registerHullCollider(object3d, hullData, color, false);
   }
 
   createRectHullFromBounds(bounds) {
@@ -1087,7 +1333,7 @@ export class OilRigMap {
 
     object3d.updateMatrixWorld(true);
     object3d.traverse((child) => {
-      if (!child.isMesh || !child.visible || !child.geometry) {
+      if (!this.isRenderableMesh(child)) {
         return;
       }
 
@@ -1174,6 +1420,7 @@ export class OilRigMap {
       maxY: hullData.maxY,
       inverseWorldMatrix: worldMatrix.clone().invert(),
       dynamic,
+      enabled: true,
       broadphase: {
         minX: worldBounds.min.x,
         maxX: worldBounds.max.x,
@@ -1194,6 +1441,8 @@ export class OilRigMap {
       this.hitboxHelpers.push(helper);
       object3d.add(helper);
     }
+
+    return colliderEntry;
   }
 
   createHullDebugHelper(hullData, color) {
@@ -1430,6 +1679,9 @@ export class OilRigMap {
     const max = this.playerCollisionBox.max;
 
     for (const collider of this.hullColliderEntries) {
+      if (collider.enabled === false) {
+        continue;
+      }
       const broad = collider.broadphase;
       const separated =
         max.x <= broad.minX ||
@@ -1484,6 +1736,9 @@ export class OilRigMap {
     let supportHeight = -Infinity;
 
     for (const collider of this.hullColliderEntries) {
+      if (collider.enabled === false) {
+        continue;
+      }
       const topY = collider.maxY;
       const eyeHeight = playerHeight + topY;
 
@@ -1598,6 +1853,10 @@ export class OilRigMap {
 
     for (const collider of this.hullColliderEntries) {
       this.updateDynamicCollider(collider);
+    }
+
+    if (this.invisibleBlockerDebugVisible) {
+      this.refreshInvisibleBlockerDebugHelpers();
     }
   }
 }
