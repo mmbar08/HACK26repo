@@ -123,6 +123,15 @@
   - UI/HUD
 - New enemies, maps, and weapons should be addable via isolated modules without touching core engine files.
 
+#### Implemented Runtime Module Boundaries
+- `src/main.js` acts as an orchestration/boot file only (wiring and loop).
+- `src/scene/maps/OilRigMap.js` owns map geometry, drill target transforms, and world/platform collision queries.
+- `src/input/InputManager.js` owns keyboard state, key normalization, pointer lock requests, and lock-state callbacks.
+- `src/player/PlayerController.js` owns FPS movement, jump physics, look controls, and collision-aware locomotion.
+- `src/enemies/EnemyManager.js` owns enemy spawning, pursuit/attack behavior, enemy-player collision, and enemy UI bars.
+- `src/combat/ShootingSystem.js` owns raycast shooting, 3D laser traces, and particle effects for shooting/hits.
+- `src/ui/HUDManager.js` owns all screen overlays (FPS, health, objective marker, lock prompt, damage flash, debug text).
+
 ### NFR-3: Readability and Team Collaboration
 - Clear folder boundaries and naming conventions.
 - Single responsibility for key systems.
@@ -171,6 +180,7 @@ A build is MVP-complete when all criteria below pass:
 7. Successful repair triggers mission win flow.
 8. HUD shows health + objective + rig risk info.
 9. Codebase follows modular structure documented in project tree.
+10. `src/main.js` remains a thin coordinator and does not contain feature-heavy system logic.
 
 ## 11) Out-of-Scope for MVP (Future Extensions)
 - Multiplayer/co-op.
