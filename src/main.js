@@ -8,6 +8,8 @@ const groundDamping = 12;
 const mouseSensitivity = 0.0022;
 const jumpVelocity = 7;
 const gravity = 18;
+const playerRadius = 0.55;
+const maxPlayerHealth = 100;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -50,7 +52,7 @@ rigFloor.rotation.x = -Math.PI / 2;
 scene.add(rigFloor);
 
 const drillShaft = new THREE.Mesh(
-	new THREE.CylinderGeometry(1.2, 1.2, 12, 24),
+	new THREE.CylinderGeometry(2.4, 2.4, 12, 24),
 	new THREE.MeshStandardMaterial({
 		color: 0x3a4a53,
 		roughness: 0.55,
@@ -60,29 +62,18 @@ const drillShaft = new THREE.Mesh(
 drillShaft.position.set(0, 6, -40);
 scene.add(drillShaft);
 
-const oilZombie = new THREE.Mesh(
-	new THREE.BoxGeometry(1.2, 2.4, 1.2),
+const rigTower = new THREE.Mesh(
+	new THREE.BoxGeometry(14, 10, 14),
 	new THREE.MeshStandardMaterial({
-		color: 0x6a3dad,
-		roughness: 0.85,
-		metalness: 0.15,
+		color: 0x5c6b73,
+		roughness: 0.7,
+		metalness: 0.35,
 	})
 );
-oilZombie.position.set(0, 1.2, -16);
-scene.add(oilZombie);
+rigTower.position.set(0, 5, -55);
+scene.add(rigTower);
 
-const oilZombie2 = new THREE.Mesh(
-	new THREE.BoxGeometry(1.2, 2.4, 1.2),
-	new THREE.MeshStandardMaterial({
-		color: 0xd04f2a,
-		roughness: 0.82,
-		metalness: 0.18,
-	})
-);
-oilZombie2.position.set(6, 1.2, -26);
-scene.add(oilZombie2);
-
-const platform = new THREE.Mesh(
+const platformA = new THREE.Mesh(
 	new THREE.BoxGeometry(14, 0.8, 14),
 	new THREE.MeshStandardMaterial({
 		color: 0x1e88e5,
@@ -90,10 +81,10 @@ const platform = new THREE.Mesh(
 		metalness: 0.35,
 	})
 );
-platform.position.set(0, 0.4, -10);
-scene.add(platform);
+platformA.position.set(0, 0.4, -10);
+scene.add(platformA);
 
-const platform2 = new THREE.Mesh(
+const platformB = new THREE.Mesh(
 	new THREE.BoxGeometry(8, 0.6, 8),
 	new THREE.MeshStandardMaterial({
 		color: 0x43a047,
@@ -101,10 +92,10 @@ const platform2 = new THREE.Mesh(
 		metalness: 0.32,
 	})
 );
-platform2.position.set(-14, 0.3, -22);
-scene.add(platform2);
+platformB.position.set(-14, 0.3, -22);
+scene.add(platformB);
 
-const platform3 = new THREE.Mesh(
+const platformC = new THREE.Mesh(
 	new THREE.BoxGeometry(10, 0.7, 10),
 	new THREE.MeshStandardMaterial({
 		color: 0xf9a825,
@@ -112,11 +103,44 @@ const platform3 = new THREE.Mesh(
 		metalness: 0.3,
 	})
 );
-platform3.position.set(16, 0.35, -30);
-scene.add(platform3);
+platformC.position.set(16, 0.35, -30);
+scene.add(platformC);
 
-const zombieHitbox = new THREE.Box3();
-let zombieHealth = 100;
+const staticCollisionBoxes = [];
+const platformSurfaces = [];
+
+function addStaticCollider(mesh, width, height, depth) {
+	const halfHeight = height / 2;
+	const collider = new THREE.Box3(
+		new THREE.Vector3(
+			mesh.position.x - width / 2,
+			mesh.position.y - halfHeight,
+			mesh.position.z - depth / 2
+		),
+		new THREE.Vector3(
+			mesh.position.x + width / 2,
+			mesh.position.y + halfHeight,
+			mesh.position.z + depth / 2
+		)
+	);
+	staticCollisionBoxes.push(collider);
+}
+
+function addPlatformSurface(mesh, width, depth, topY) {
+	platformSurfaces.push({
+		minX: mesh.position.x - width / 2,
+		maxX: mesh.position.x + width / 2,
+		minZ: mesh.position.z - depth / 2,
+		maxZ: mesh.position.z + depth / 2,
+		topY,
+	});
+}
+
+addPlatformSurface(platformA, 14, 14, 0.8);
+addPlatformSurface(platformB, 8, 8, 0.6);
+addPlatformSurface(platformC, 10, 10, 0.7);
+addStaticCollider(drillShaft, 5.2, 12, 5.2);
+addStaticCollider(rigTower, 14, 10, 14);
 
 const hud = document.createElement('div');
 hud.style.position = 'fixed';
@@ -129,7 +153,8 @@ hud.style.color = '#e6f4f1';
 hud.style.fontFamily = 'system-ui, sans-serif';
 hud.style.fontSize = '14px';
 hud.style.lineHeight = '1.35';
-hud.textContent = 'Click to lock pointer | WASD move | Mouse look | Left click shoot';
+hud.textContent =
+	'Click to lock pointer | WASD move | Space jump | Mouse look | Left click shoot';
 document.body.appendChild(hud);
 
 const fpsCounter = document.createElement('div');
@@ -170,6 +195,38 @@ inputDebug.style.fontSize = '12px';
 inputDebug.textContent = 'Keys: none';
 document.body.appendChild(inputDebug);
 
+const healthUi = document.createElement('div');
+healthUi.style.position = 'fixed';
+healthUi.style.right = '12px';
+healthUi.style.bottom = '12px';
+healthUi.style.padding = '8px';
+healthUi.style.background = 'rgba(0, 0, 0, 0.45)';
+healthUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+healthUi.style.width = '220px';
+healthUi.style.fontFamily = 'system-ui, sans-serif';
+healthUi.style.fontSize = '12px';
+healthUi.style.color = '#e6f4f1';
+
+const healthLabel = document.createElement('div');
+healthLabel.style.marginBottom = '6px';
+healthLabel.textContent = 'Health: 100';
+
+const healthTrack = document.createElement('div');
+healthTrack.style.width = '100%';
+healthTrack.style.height = '14px';
+healthTrack.style.background = 'rgba(255, 255, 255, 0.2)';
+healthTrack.style.border = '1px solid rgba(255, 255, 255, 0.25)';
+
+const healthFill = document.createElement('div');
+healthFill.style.height = '100%';
+healthFill.style.width = '100%';
+healthFill.style.background = 'linear-gradient(90deg, #23c06f 0%, #f4d03f 65%, #d53f3f 100%)';
+
+healthTrack.appendChild(healthFill);
+healthUi.appendChild(healthLabel);
+healthUi.appendChild(healthTrack);
+document.body.appendChild(healthUi);
+
 const lockHint = document.createElement('div');
 lockHint.style.position = 'fixed';
 lockHint.style.inset = '0';
@@ -203,6 +260,8 @@ let fpsFrames = 0;
 let fpsAccumulator = 0;
 let verticalVelocity = 0;
 let jumpQueued = false;
+let playerHealth = maxPlayerHealth;
+let elapsedTime = 0;
 
 const shotRay = new THREE.Raycaster();
 const screenCenter = new THREE.Vector2(0, 0);
@@ -211,9 +270,238 @@ const right = new THREE.Vector3();
 const moveDirection = new THREE.Vector3();
 const horizontalVelocity = new THREE.Vector3();
 const upAxis = new THREE.Vector3(0, 1, 0);
+const playerCollider = new THREE.Box3();
+const collisionSize = new THREE.Vector3(playerRadius * 2, 2, playerRadius * 2);
+const laserTraces = [];
+const tempVector = new THREE.Vector3();
 
-function setZombieAliveState(isAlive) {
-	oilZombie.visible = isAlive;
+class EnemyManager {
+	constructor(targetScene, spawnConfigs) {
+		this.scene = targetScene;
+		this.enemies = [];
+		this.enemyId = 1;
+
+		for (const config of spawnConfigs) {
+			this.spawn(config);
+		}
+	}
+
+	spawn(config) {
+		const mesh = new THREE.Mesh(
+			new THREE.BoxGeometry(1.2, 2.4, 1.2),
+			new THREE.MeshStandardMaterial({
+				color: config.color,
+				roughness: 0.85,
+				metalness: 0.16,
+			})
+		);
+
+		mesh.position.set(config.position.x, 1.2, config.position.z);
+		this.scene.add(mesh);
+
+		this.enemies.push({
+			id: this.enemyId++,
+			mesh,
+			color: config.color,
+			health: config.health,
+			speed: config.speed,
+			attackRadius: config.attackRadius,
+			damagePerSecond: config.damagePerSecond,
+			collisionRadius: 0.8,
+			alive: true,
+		});
+	}
+
+	update(delta, playerPosition) {
+		let totalDamage = 0;
+
+		for (const enemy of this.enemies) {
+			if (!enemy.alive) {
+				continue;
+			}
+
+			tempVector
+				.copy(playerPosition)
+				.sub(enemy.mesh.position)
+				.setY(0);
+
+			const distance = tempVector.length();
+
+			if (distance > 0.001) {
+				tempVector.normalize();
+				enemy.mesh.position.addScaledVector(tempVector, enemy.speed * delta);
+			}
+
+			enemy.mesh.rotation.y += delta * 1.7;
+
+			if (distance <= enemy.attackRadius) {
+				totalDamage += enemy.damagePerSecond * delta;
+			}
+		}
+
+		return totalDamage;
+	}
+
+	resolvePlayerEnemyCollision(playerPosition) {
+		for (const enemy of this.enemies) {
+			if (!enemy.alive) {
+				continue;
+			}
+
+			tempVector
+				.copy(playerPosition)
+				.sub(enemy.mesh.position)
+				.setY(0);
+
+			const distance = tempVector.length();
+			const minDistance = playerRadius + enemy.collisionRadius;
+
+			if (distance >= minDistance || distance < 0.0001) {
+				continue;
+			}
+
+			const pushDistance = minDistance - distance;
+			tempVector.normalize();
+			playerPosition.addScaledVector(tempVector, pushDistance);
+		}
+	}
+
+	shoot(raycaster) {
+		const aliveMeshes = this.enemies
+			.filter((enemy) => enemy.alive)
+			.map((enemy) => enemy.mesh);
+
+		if (!aliveMeshes.length) {
+			return null;
+		}
+
+		const hits = raycaster.intersectObjects(aliveMeshes, false);
+
+		if (!hits.length) {
+			return null;
+		}
+
+		const hit = hits[0];
+		const targetEnemy = this.enemies.find((enemy) => enemy.mesh === hit.object);
+
+		if (!targetEnemy) {
+			return null;
+		}
+
+		targetEnemy.health = Math.max(0, targetEnemy.health - 34);
+		targetEnemy.mesh.material.color.setHex(0xffffff);
+
+		setTimeout(() => {
+			if (targetEnemy.alive) {
+				targetEnemy.mesh.material.color.setHex(targetEnemy.color);
+			}
+		}, 75);
+
+		if (targetEnemy.health === 0) {
+			targetEnemy.alive = false;
+			targetEnemy.mesh.visible = false;
+		}
+
+		return hit.point.clone();
+	}
+
+	getAliveCount() {
+		return this.enemies.filter((enemy) => enemy.alive).length;
+	}
+}
+
+const enemySpawnConfigs = [
+	{
+		position: { x: 0, z: -16 },
+		color: 0x6a3dad,
+		health: 100,
+		speed: 2.8,
+		attackRadius: 2.2,
+		damagePerSecond: 10,
+	},
+	{
+		position: { x: 6, z: -26 },
+		color: 0xd04f2a,
+		health: 90,
+		speed: 3.2,
+		attackRadius: 2.4,
+		damagePerSecond: 12,
+	},
+	{
+		position: { x: -8, z: -34 },
+		color: 0x00897b,
+		health: 110,
+		speed: 2.6,
+		attackRadius: 2.6,
+		damagePerSecond: 14,
+	},
+];
+
+const enemyManager = new EnemyManager(scene, enemySpawnConfigs);
+
+function createLaserTrace(startPoint, endPoint) {
+	const points = [startPoint.clone(), endPoint.clone()];
+	const geometry = new THREE.BufferGeometry().setFromPoints(points);
+	const material = new THREE.LineBasicMaterial({
+		color: 0x8ee7ff,
+		transparent: true,
+		opacity: 0.9,
+	});
+	const line = new THREE.Line(geometry, material);
+
+	scene.add(line);
+	laserTraces.push({ line, ttl: 0.08 });
+}
+
+function updateLaserTraces(delta) {
+	for (let index = laserTraces.length - 1; index >= 0; index -= 1) {
+		const trace = laserTraces[index];
+		trace.ttl -= delta;
+
+		if (trace.ttl <= 0) {
+			scene.remove(trace.line);
+			trace.line.geometry.dispose();
+			trace.line.material.dispose();
+			laserTraces.splice(index, 1);
+			continue;
+		}
+
+		trace.line.material.opacity = Math.max(0, trace.ttl / 0.08);
+	}
+}
+
+function collidesWithStaticWorld(nextPosition) {
+	playerCollider.setFromCenterAndSize(nextPosition, collisionSize);
+
+	for (const box of staticCollisionBoxes) {
+		if (playerCollider.intersectsBox(box)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function getGroundHeightAt(x, z, cameraY) {
+	let groundHeight = 0;
+
+	for (const surface of platformSurfaces) {
+		const withinX = x >= surface.minX && x <= surface.maxX;
+		const withinZ = z >= surface.minZ && z <= surface.maxZ;
+
+		if (!withinX || !withinZ) {
+			continue;
+		}
+
+		const platformEyeHeight = playerHeight + surface.topY;
+		const canLandOnSurface = cameraY >= surface.topY - 0.2 && cameraY <= platformEyeHeight + 3;
+
+		if (canLandOnSurface) {
+			groundHeight = Math.max(groundHeight, surface.topY);
+		}
+	}
+
+	return groundHeight;
 }
 
 function isPressed(code) {
@@ -239,29 +527,21 @@ function onMouseMove(event) {
 }
 
 function shoot() {
-	if (document.pointerLockElement !== renderer.domElement || !oilZombie.visible) {
+	if (document.pointerLockElement !== renderer.domElement) {
 		return;
 	}
 
 	shotRay.setFromCamera(screenCenter, camera);
-	const hits = shotRay.intersectObject(oilZombie, false);
 
-	if (!hits.length) {
-		return;
-	}
+	const hitPoint = enemyManager.shoot(shotRay);
+	const shotStart = new THREE.Vector3();
+	camera.getWorldPosition(shotStart);
 
-	zombieHealth = Math.max(0, zombieHealth - 34);
-	oilZombie.material.color.setHex(0x403535);
-
-	setTimeout(() => {
-		if (oilZombie.visible) {
-			oilZombie.material.color.setHex(0x6a3dad);
-		}
-	}, 80);
-
-	if (zombieHealth === 0) {
-		setZombieAliveState(false);
-		hud.textContent = 'Target neutralized. Proceed to drill shaft.';
+	if (hitPoint) {
+		createLaserTrace(shotStart, hitPoint);
+	} else {
+		const missPoint = shotStart.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(80));
+		createLaserTrace(shotStart, missPoint);
 	}
 }
 
@@ -310,7 +590,14 @@ function updateMovement(delta) {
 		horizontalVelocity.z *= speedScale;
 	}
 
-	const isGrounded = camera.position.y <= playerHeight + 0.001;
+	const currentGroundHeight = getGroundHeightAt(
+		camera.position.x,
+		camera.position.z,
+		camera.position.y
+	);
+	const currentGroundEyeY = playerHeight + currentGroundHeight;
+	const isGrounded =
+		camera.position.y <= currentGroundEyeY + 0.001 && verticalVelocity <= 0.001;
 
 	if (jumpQueued && isGrounded) {
 		verticalVelocity = jumpVelocity;
@@ -319,12 +606,35 @@ function updateMovement(delta) {
 
 	verticalVelocity -= gravity * delta;
 
-	camera.position.x += horizontalVelocity.x * delta;
-	camera.position.z += horizontalVelocity.z * delta;
+	const nextPositionX = camera.position.clone();
+	nextPositionX.x += horizontalVelocity.x * delta;
+
+	if (!collidesWithStaticWorld(nextPositionX)) {
+		camera.position.x = nextPositionX.x;
+	} else {
+		horizontalVelocity.x = 0;
+	}
+
+	const nextPositionZ = camera.position.clone();
+	nextPositionZ.z += horizontalVelocity.z * delta;
+
+	if (!collidesWithStaticWorld(nextPositionZ)) {
+		camera.position.z = nextPositionZ.z;
+	} else {
+		horizontalVelocity.z = 0;
+	}
+
 	camera.position.y += verticalVelocity * delta;
 
-	if (camera.position.y < playerHeight) {
-		camera.position.y = playerHeight;
+	const groundHeight = getGroundHeightAt(
+		camera.position.x,
+		camera.position.z,
+		camera.position.y
+	);
+	const minEyeHeight = playerHeight + groundHeight;
+
+	if (camera.position.y < minEyeHeight) {
+		camera.position.y = minEyeHeight;
 		verticalVelocity = 0;
 		if (!isPressed('Space')) {
 			jumpQueued = false;
@@ -409,7 +719,19 @@ function resetInputState() {
 
 function updateInputDebug() {
 	const pressedKeys = Array.from(activeKeys.values()).join(', ');
-	inputDebug.textContent = `Keys: ${pressedKeys || 'none'}`;
+	inputDebug.textContent = `Keys: ${pressedKeys || 'none'} | Enemies: ${enemyManager.getAliveCount()}`;
+}
+
+function applyDamage(amount) {
+	playerHealth = Math.max(0, playerHealth - amount);
+	const percent = (playerHealth / maxPlayerHealth) * 100;
+	healthFill.style.width = `${percent}%`;
+	healthLabel.textContent = `Health: ${Math.ceil(playerHealth)}`;
+
+	if (playerHealth === 0) {
+		hud.style.display = 'block';
+		hud.textContent = 'You were overwhelmed. Refresh to restart.';
+	}
 }
 
 renderer.domElement.addEventListener('click', () => {
@@ -460,24 +782,28 @@ const clock = new THREE.Clock();
 
 function animate() {
 	const delta = clock.getDelta();
-	const elapsed = clock.elapsedTime;
-	const isLocked = document.pointerLockElement === renderer.domElement;
+	elapsedTime += delta;
 
 	updateMovement(delta);
+	enemyManager.resolvePlayerEnemyCollision(camera.position);
 
 	updateFps(delta);
 	updateInputDebug();
+	updateLaserTraces(delta);
 
-	if (oilZombie.visible) {
-		oilZombie.position.x = Math.sin(elapsed * 0.8) * 4;
-		oilZombie.rotation.y += delta * 0.8;
-		zombieHitbox.setFromObject(oilZombie);
+	const damageTaken = enemyManager.update(delta, camera.position);
+
+	if (damageTaken > 0 && playerHealth > 0) {
+		applyDamage(damageTaken);
 	}
 
-	oilZombie2.position.x = 6 + Math.cos(elapsed * 0.75) * 3;
-	oilZombie2.rotation.y -= delta * 0.6;
+	if (enemyManager.getAliveCount() === 0) {
+		hud.style.display = 'block';
+		hud.textContent = 'All enemies cleared. Reach the drill shaft!';
+	}
 
 	drillShaft.rotation.y += delta * 0.35;
+	rigTower.rotation.y += delta * 0.08;
 
 	renderer.render(scene, camera);
 	requestAnimationFrame(animate);
