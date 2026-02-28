@@ -5,11 +5,12 @@ const playerHeight = 2;
 const maxMoveSpeed = 8.5;
 const moveAcceleration = 34;
 const groundDamping = 12;
-const mouseSensitivity = 0.0022;
+const mouseSensitivity = 0.0012;
 const jumpVelocity = 7;
 const gravity = 18;
 const playerRadius = 0.55;
 const maxPlayerHealth = 100;
+const shotLaserTtl = 0.1;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -227,6 +228,28 @@ healthUi.appendChild(healthLabel);
 healthUi.appendChild(healthTrack);
 document.body.appendChild(healthUi);
 
+const drillMarker = document.createElement('div');
+drillMarker.style.position = 'fixed';
+drillMarker.style.left = '50%';
+drillMarker.style.top = '18%';
+drillMarker.style.transform = 'translate(-50%, -50%)';
+drillMarker.style.padding = '6px 10px';
+drillMarker.style.background = 'rgba(0, 0, 0, 0.45)';
+drillMarker.style.border = '1px solid rgba(255, 255, 255, 0.28)';
+drillMarker.style.color = '#e6f4f1';
+drillMarker.style.fontFamily = 'system-ui, sans-serif';
+drillMarker.style.fontSize = '12px';
+drillMarker.style.pointerEvents = 'none';
+drillMarker.textContent = 'DRILL SHAFT';
+document.body.appendChild(drillMarker);
+
+const damageFlash = document.createElement('div');
+damageFlash.style.position = 'fixed';
+damageFlash.style.inset = '0';
+damageFlash.style.pointerEvents = 'none';
+damageFlash.style.background = 'rgba(255, 50, 50, 0)';
+document.body.appendChild(damageFlash);
+
 const lockHint = document.createElement('div');
 lockHint.style.position = 'fixed';
 lockHint.style.inset = '0';
@@ -273,7 +296,51 @@ const upAxis = new THREE.Vector3(0, 1, 0);
 const playerCollider = new THREE.Box3();
 const collisionSize = new THREE.Vector3(playerRadius * 2, 2, playerRadius * 2);
 const laserTraces = [];
+const particleBursts = [];
 const tempVector = new THREE.Vector3();
+const tempVector2 = new THREE.Vector3();
+const tempVector3 = new THREE.Vector3();
+const tempQuaternion = new THREE.Quaternion();
+const muzzleOffset = new THREE.Vector3(0.35, -0.25, -0.8);
+const clipSpaceVector = new THREE.Vector3();
+let damageFlashStrength = 0;
+
+function createEnemyUi(typeName) {
+	const container = document.createElement('div');
+	container.style.position = 'fixed';
+	container.style.transform = 'translate(-50%, -120%)';
+	container.style.pointerEvents = 'none';
+	container.style.minWidth = '110px';
+	container.style.padding = '4px 6px';
+	container.style.background = 'rgba(0, 0, 0, 0.5)';
+	container.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+	container.style.fontFamily = 'system-ui, sans-serif';
+	container.style.fontSize = '11px';
+	container.style.color = '#f3f8ff';
+
+	const name = document.createElement('div');
+	name.style.marginBottom = '4px';
+	name.style.textAlign = 'center';
+	name.textContent = typeName;
+
+	const barTrack = document.createElement('div');
+	barTrack.style.width = '100%';
+	barTrack.style.height = '8px';
+	barTrack.style.background = 'rgba(255, 255, 255, 0.22)';
+	barTrack.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+
+	const barFill = document.createElement('div');
+	barFill.style.height = '100%';
+	barFill.style.width = '100%';
+	barFill.style.background = 'linear-gradient(90deg, #29d27b 0%, #f6d54b 60%, #de4848 100%)';
+
+	barTrack.appendChild(barFill);
+	container.appendChild(name);
+	container.appendChild(barTrack);
+	document.body.appendChild(container);
+
+	return { container, barFill };
+}
 
 class EnemyManager {
 	constructor(targetScene, spawnConfigs) {
@@ -298,17 +365,21 @@ class EnemyManager {
 
 		mesh.position.set(config.position.x, 1.2, config.position.z);
 		this.scene.add(mesh);
+		const ui = createEnemyUi(config.typeName);
 
 		this.enemies.push({
 			id: this.enemyId++,
 			mesh,
+			typeName: config.typeName,
 			color: config.color,
+			maxHealth: config.health,
 			health: config.health,
 			speed: config.speed,
 			attackRadius: config.attackRadius,
 			damagePerSecond: config.damagePerSecond,
 			collisionRadius: 0.8,
 			alive: true,
+			ui,
 		});
 	}
 
@@ -400,6 +471,7 @@ class EnemyManager {
 		if (targetEnemy.health === 0) {
 			targetEnemy.alive = false;
 			targetEnemy.mesh.visible = false;
+			targetEnemy.ui.container.style.display = 'none';
 		}
 
 		return hit.point.clone();
@@ -408,10 +480,37 @@ class EnemyManager {
 	getAliveCount() {
 		return this.enemies.filter((enemy) => enemy.alive).length;
 	}
+
+	updateUi(currentCamera) {
+		for (const enemy of this.enemies) {
+			if (!enemy.alive) {
+				enemy.ui.container.style.display = 'none';
+				continue;
+			}
+
+			clipSpaceVector.copy(enemy.mesh.position);
+			clipSpaceVector.y += 2.2;
+			clipSpaceVector.project(currentCamera);
+			const isVisible = clipSpaceVector.z >= -1 && clipSpaceVector.z <= 1;
+
+			if (!isVisible) {
+				enemy.ui.container.style.display = 'none';
+				continue;
+			}
+
+			enemy.ui.container.style.display = 'block';
+			enemy.ui.container.style.left = `${(clipSpaceVector.x * 0.5 + 0.5) * window.innerWidth}px`;
+			enemy.ui.container.style.top = `${(-clipSpaceVector.y * 0.5 + 0.5) * window.innerHeight}px`;
+
+			const healthPercent = (enemy.health / enemy.maxHealth) * 100;
+			enemy.ui.barFill.style.width = `${Math.max(0, healthPercent)}%`;
+		}
+	}
 }
 
 const enemySpawnConfigs = [
 	{
+		typeName: 'Oil Zombie',
 		position: { x: 0, z: -16 },
 		color: 0x6a3dad,
 		health: 100,
@@ -420,6 +519,7 @@ const enemySpawnConfigs = [
 		damagePerSecond: 10,
 	},
 	{
+		typeName: 'Oil Brute',
 		position: { x: 6, z: -26 },
 		color: 0xd04f2a,
 		health: 90,
@@ -428,6 +528,7 @@ const enemySpawnConfigs = [
 		damagePerSecond: 12,
 	},
 	{
+		typeName: 'Oil Stalker',
 		position: { x: -8, z: -34 },
 		color: 0x00897b,
 		health: 110,
@@ -440,17 +541,28 @@ const enemySpawnConfigs = [
 const enemyManager = new EnemyManager(scene, enemySpawnConfigs);
 
 function createLaserTrace(startPoint, endPoint) {
-	const points = [startPoint.clone(), endPoint.clone()];
-	const geometry = new THREE.BufferGeometry().setFromPoints(points);
-	const material = new THREE.LineBasicMaterial({
+	const direction = tempVector2.copy(endPoint).sub(startPoint);
+	const length = direction.length();
+
+	if (length < 0.001) {
+		return;
+	}
+
+	direction.normalize();
+	const geometry = new THREE.CylinderGeometry(0.045, 0.045, length, 8, 1, true);
+	const material = new THREE.MeshBasicMaterial({
 		color: 0x8ee7ff,
 		transparent: true,
-		opacity: 0.9,
+		opacity: 0.95,
 	});
-	const line = new THREE.Line(geometry, material);
+	const beam = new THREE.Mesh(geometry, material);
 
-	scene.add(line);
-	laserTraces.push({ line, ttl: 0.08 });
+	beam.position.copy(startPoint).add(endPoint).multiplyScalar(0.5);
+	tempQuaternion.setFromUnitVectors(upAxis, direction);
+	beam.quaternion.copy(tempQuaternion);
+
+	scene.add(beam);
+	laserTraces.push({ beam, material, ttl: shotLaserTtl });
 }
 
 function updateLaserTraces(delta) {
@@ -459,14 +571,118 @@ function updateLaserTraces(delta) {
 		trace.ttl -= delta;
 
 		if (trace.ttl <= 0) {
-			scene.remove(trace.line);
-			trace.line.geometry.dispose();
-			trace.line.material.dispose();
+			scene.remove(trace.beam);
+			trace.beam.geometry.dispose();
+			trace.material.dispose();
 			laserTraces.splice(index, 1);
 			continue;
 		}
 
-		trace.line.material.opacity = Math.max(0, trace.ttl / 0.08);
+		trace.material.opacity = Math.max(0, trace.ttl / shotLaserTtl);
+	}
+}
+
+function createParticleBurst(origin, options = {}) {
+	const count = options.count ?? 12;
+	const speed = options.speed ?? 6;
+	const ttl = options.ttl ?? 0.2;
+	const gravityScale = options.gravityScale ?? 0;
+	const color = options.color ?? 0xffffff;
+	const spread = options.spread ?? 1;
+	const baseDirection = options.baseDirection ?? null;
+
+	const positions = new Float32Array(count * 3);
+	const velocities = [];
+
+	for (let i = 0; i < count; i += 1) {
+		const offset = i * 3;
+		positions[offset] = origin.x;
+		positions[offset + 1] = origin.y;
+		positions[offset + 2] = origin.z;
+
+		const dir = new THREE.Vector3(
+			(Math.random() - 0.5) * spread,
+			Math.random() * spread,
+			(Math.random() - 0.5) * spread
+		);
+
+		if (baseDirection) {
+			dir.add(baseDirection);
+		}
+
+		dir.normalize().multiplyScalar(speed * (0.65 + Math.random() * 0.55));
+		velocities.push(dir);
+	}
+
+	const geometry = new THREE.BufferGeometry();
+	geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+	const material = new THREE.PointsMaterial({
+		color,
+		size: options.size ?? 0.09,
+		transparent: true,
+		opacity: 0.95,
+		depthWrite: false,
+	});
+
+	const points = new THREE.Points(geometry, material);
+	scene.add(points);
+
+	particleBursts.push({
+		points,
+		geometry,
+		material,
+		positions,
+		velocities,
+		ttl,
+		maxTtl: ttl,
+		gravityScale,
+	});
+}
+
+function updateParticleBursts(delta) {
+	for (let burstIndex = particleBursts.length - 1; burstIndex >= 0; burstIndex -= 1) {
+		const burst = particleBursts[burstIndex];
+		burst.ttl -= delta;
+
+		if (burst.ttl <= 0) {
+			scene.remove(burst.points);
+			burst.geometry.dispose();
+			burst.material.dispose();
+			particleBursts.splice(burstIndex, 1);
+			continue;
+		}
+
+		const positions = burst.positions;
+		for (let i = 0; i < burst.velocities.length; i += 1) {
+			const velocity = burst.velocities[i];
+			velocity.y -= gravity * burst.gravityScale * delta;
+
+			const offset = i * 3;
+			positions[offset] += velocity.x * delta;
+			positions[offset + 1] += velocity.y * delta;
+			positions[offset + 2] += velocity.z * delta;
+		}
+
+		burst.geometry.attributes.position.needsUpdate = true;
+		burst.material.opacity = Math.max(0, burst.ttl / burst.maxTtl);
+	}
+}
+
+function updateDrillOverlay() {
+	clipSpaceVector.copy(drillShaft.position).project(camera);
+	const distance = camera.position.distanceTo(drillShaft.position);
+	const visible = clipSpaceVector.z >= -1 && clipSpaceVector.z <= 1;
+
+	if (visible) {
+		const x = (clipSpaceVector.x * 0.5 + 0.5) * window.innerWidth;
+		const y = (-clipSpaceVector.y * 0.5 + 0.5) * window.innerHeight;
+		drillMarker.style.left = `${THREE.MathUtils.clamp(x, 40, window.innerWidth - 40)}px`;
+		drillMarker.style.top = `${THREE.MathUtils.clamp(y - 30, 30, window.innerHeight - 30)}px`;
+		drillMarker.textContent = `⬤ DRILL SHAFT ${Math.round(distance)}m`;
+	} else {
+		drillMarker.style.left = '50%';
+		drillMarker.style.top = '16%';
+		drillMarker.textContent = `▲ DRILL SHAFT ${Math.round(distance)}m`;
 	}
 }
 
@@ -534,13 +750,33 @@ function shoot() {
 	shotRay.setFromCamera(screenCenter, camera);
 
 	const hitPoint = enemyManager.shoot(shotRay);
-	const shotStart = new THREE.Vector3();
-	camera.getWorldPosition(shotStart);
+	const shotStart = camera.localToWorld(muzzleOffset.clone());
+	const shotDirection = camera.getWorldDirection(tempVector3).normalize();
+
+	createParticleBurst(shotStart, {
+		color: 0xa4ebff,
+		count: 16,
+		size: 0.075,
+		ttl: 0.14,
+		speed: 7,
+		spread: 0.9,
+		baseDirection: shotDirection,
+		gravityScale: 0,
+	});
 
 	if (hitPoint) {
 		createLaserTrace(shotStart, hitPoint);
+		createParticleBurst(hitPoint, {
+			color: 0xffd8a8,
+			count: 12,
+			size: 0.085,
+			ttl: 0.2,
+			speed: 4.8,
+			spread: 1.1,
+			gravityScale: 0.35,
+		});
 	} else {
-		const missPoint = shotStart.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(80));
+		const missPoint = shotStart.clone().add(shotDirection.clone().multiplyScalar(80));
 		createLaserTrace(shotStart, missPoint);
 	}
 }
@@ -727,6 +963,18 @@ function applyDamage(amount) {
 	const percent = (playerHealth / maxPlayerHealth) * 100;
 	healthFill.style.width = `${percent}%`;
 	healthLabel.textContent = `Health: ${Math.ceil(playerHealth)}`;
+	damageFlashStrength = Math.min(1, damageFlashStrength + amount / 40);
+
+	const hitOrigin = camera.position.clone().add(new THREE.Vector3(0, -0.15, 0));
+	createParticleBurst(hitOrigin, {
+		color: 0xff5f5f,
+		count: 10,
+		size: 0.08,
+		ttl: 0.22,
+		speed: 3.5,
+		spread: 1.3,
+		gravityScale: 0.5,
+	});
 
 	if (playerHealth === 0) {
 		hud.style.display = 'block';
@@ -790,6 +1038,12 @@ function animate() {
 	updateFps(delta);
 	updateInputDebug();
 	updateLaserTraces(delta);
+	updateParticleBursts(delta);
+	updateDrillOverlay();
+	enemyManager.updateUi(camera);
+
+	damageFlashStrength = Math.max(0, damageFlashStrength - delta * 2.2);
+	damageFlash.style.background = `rgba(255, 50, 50, ${damageFlashStrength * 0.25})`;
 
 	const damageTaken = enemyManager.update(delta, camera.position);
 
