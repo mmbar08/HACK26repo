@@ -252,7 +252,6 @@ function animate() {
       updateDropSequence(delta);
     } else {
       player.update(delta);
-      enemyManager.resolvePlayerCollision(camera.position);
 
       const dangerMultiplier = enemyManager.getAliveCount() > 0 ? 1.12 : 0.85;
       rigFailure.update(delta, dangerMultiplier);

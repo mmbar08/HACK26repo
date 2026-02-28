@@ -48,6 +48,7 @@ export class EnemyManager {
     this.tempPosition = new THREE.Vector3();
     this.clipSpaceVector = new THREE.Vector3();
     this.enemyCollider = new THREE.Box3();
+    this.attackVerticalRange = 2.8;
 
     this.enemyCollisionSize = new THREE.Vector3(1.6, 2.4, 1.6);
 
@@ -117,7 +118,8 @@ export class EnemyManager {
 
       enemy.mesh.rotation.y += delta * 1.7;
 
-      if (distance <= enemy.attackRadius) {
+      const verticalDistance = Math.abs(playerPosition.y - enemy.mesh.position.y);
+      if (distance <= enemy.attackRadius && verticalDistance <= this.attackVerticalRange) {
         totalDamage += enemy.damagePerSecond * delta;
       }
     }
@@ -139,24 +141,7 @@ export class EnemyManager {
   }
 
   resolvePlayerCollision(playerPosition) {
-    for (const enemy of this.enemies) {
-      if (!enemy.alive) {
-        continue;
-      }
-
-      this.tempVector.copy(playerPosition).sub(enemy.mesh.position).setY(0);
-
-      const distance = this.tempVector.length();
-      const minDistance = this.playerRadius + enemy.collisionRadius;
-
-      if (distance >= minDistance || distance < 0.0001) {
-        continue;
-      }
-
-      const pushDistance = minDistance - distance;
-      this.tempVector.normalize();
-      playerPosition.addScaledVector(this.tempVector, pushDistance);
-    }
+    return playerPosition;
   }
 
   getClosestShotHit(raycaster, maxDistance = Infinity) {

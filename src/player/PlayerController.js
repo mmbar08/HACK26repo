@@ -164,7 +164,8 @@ export class PlayerController {
       }
     }
 
-    this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, -85, 85);
-    this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, -85, 85);
+    const worldLimit = this.map.getPlayBoundsLimit ? this.map.getPlayBoundsLimit() : 85;
+    this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, -worldLimit, worldLimit);
+    this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, -worldLimit, worldLimit);
   }
 }
