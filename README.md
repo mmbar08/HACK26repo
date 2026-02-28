@@ -14,6 +14,17 @@ First-person shooter prototype themed around sustainability, set on a failing oi
 
 ## Run Locally
 
-- Install dependencies: npm install
-- Start dev server: npm run dev -- --host 0.0.0.0 --port 4173 --strictPort
-- Open game page quickly: npm run open
+1. Install dependencies:
+	- `npm install`
+2. Start the dev server:
+	- `npm run dev -- --host 0.0.0.0 --port 4173 --strictPort`
+3. Open localhost quickly from this environment:
+	- `npm run open`
+4. Direct URL:
+	- `http://localhost:4173/`
+
+## If localhost does not open
+
+- In VS Code, open the **Ports** panel.
+- Find port `4173` and click **Open in Browser**.
+- Use that forwarded URL instead of local machine `localhost`.
