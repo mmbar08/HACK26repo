@@ -25,6 +25,36 @@ export class OilRigMap {
       new THREE.Vector2(0.707, -0.707),
       new THREE.Vector2(-0.707, -0.707),
     ];
+    this.squareSampleOffsets = [
+      new THREE.Vector2(0, 0),
+      new THREE.Vector2(1, 0),
+      new THREE.Vector2(-1, 0),
+      new THREE.Vector2(0, 1),
+      new THREE.Vector2(0, -1),
+      new THREE.Vector2(1, 1),
+      new THREE.Vector2(-1, 1),
+      new THREE.Vector2(1, -1),
+      new THREE.Vector2(-1, -1),
+      new THREE.Vector2(1, 0.5),
+      new THREE.Vector2(1, -0.5),
+      new THREE.Vector2(-1, 0.5),
+      new THREE.Vector2(-1, -0.5),
+      new THREE.Vector2(0.5, 1),
+      new THREE.Vector2(-0.5, 1),
+      new THREE.Vector2(0.5, -1),
+      new THREE.Vector2(-0.5, -1),
+    ];
+    this.groundSupportOffsets = [
+      new THREE.Vector2(0, 0),
+      new THREE.Vector2(1, 0),
+      new THREE.Vector2(-1, 0),
+      new THREE.Vector2(0, 1),
+      new THREE.Vector2(0, -1),
+      new THREE.Vector2(1, 1),
+      new THREE.Vector2(-1, 1),
+      new THREE.Vector2(1, -1),
+      new THREE.Vector2(-1, -1),
+    ];
     this.tempColliderMatrix = new THREE.Matrix4();
     this.tempInverseMatrix = new THREE.Matrix4();
     this.tempSphereCenter = new THREE.Vector3();
@@ -1022,7 +1052,13 @@ export class OilRigMap {
     });
   }
 
-  collidesWithWorld(nextPosition, _playerCollider, collisionSize, _currentPosition = null) {
+  collidesWithWorld(
+    nextPosition,
+    _playerCollider,
+    collisionSize,
+    _currentPosition = null,
+    collisionShape = 'round'
+  ) {
     const halfWidth = (collisionSize?.x ?? 1) * 0.5;
     const bodyHeight = collisionSize?.y ?? 2;
 
@@ -1056,17 +1092,21 @@ export class OilRigMap {
       }
 
       const radius = halfWidth;
+      const sampleOffsets =
+        collisionShape === 'square' ? this.squareSampleOffsets : this.horizontalSampleOffsets;
+      const sampleReach = collisionShape === 'square' ? halfWidth : radius;
+      const testRadius = collisionShape === 'square' ? 0.07 : radius;
       const bottomY = nextPosition.y - bodyHeight + radius;
       const topY = nextPosition.y - radius;
       const midY = (bottomY + topY) * 0.5;
       const sampleHeights = [bottomY, midY, topY];
 
-      for (const offset of this.horizontalSampleOffsets) {
+      for (const offset of sampleOffsets) {
         for (const sampleY of sampleHeights) {
           this.tempSphereCenter.set(
-            nextPosition.x + offset.x * radius,
+            nextPosition.x + offset.x * sampleReach,
             sampleY,
-            nextPosition.z + offset.y * radius
+            nextPosition.z + offset.y * sampleReach
           );
 
           this.tempSphereCenter.applyMatrix4(collider.inverseWorldMatrix);
@@ -1078,7 +1118,7 @@ export class OilRigMap {
             continue;
           }
 
-          if (this.collidesWithHull(this.tempSphereCenter, radius, collider)) {
+          if (this.collidesWithHull(this.tempSphereCenter, testRadius, collider)) {
             return true;
           }
         }
@@ -1086,6 +1126,42 @@ export class OilRigMap {
     }
 
     return false;
+  }
+
+  getColliderTopSupportHeight(x, z, cameraY, playerHeight, footprintHalfSize = 0.52) {
+    let supportHeight = -Infinity;
+
+    for (const collider of this.hullColliderEntries) {
+      const topY = collider.maxY;
+      const eyeHeight = playerHeight + topY;
+
+      if (cameraY < topY - 0.28 || cameraY > eyeHeight + 2.5) {
+        continue;
+      }
+
+      for (const offset of this.groundSupportOffsets) {
+        this.tempSphereCenter.set(
+          x + offset.x * footprintHalfSize,
+          topY,
+          z + offset.y * footprintHalfSize
+        );
+        this.tempSphereCenter.applyMatrix4(collider.inverseWorldMatrix);
+
+        if (
+          this.tempSphereCenter.y < collider.minY - 0.05 ||
+          this.tempSphereCenter.y > collider.maxY + 0.05
+        ) {
+          continue;
+        }
+
+        if (this.collidesWithHull(this.tempSphereCenter, 0.05, collider)) {
+          supportHeight = Math.max(supportHeight, topY);
+          break;
+        }
+      }
+    }
+
+    return Number.isFinite(supportHeight) ? supportHeight : null;
   }
 
   getGroundHeightAt(x, z, cameraY, playerHeight) {
@@ -1135,6 +1211,17 @@ export class OilRigMap {
       if (canLandOnSurface) {
         groundHeight = Math.max(groundHeight, surface.topY);
       }
+    }
+
+    const colliderSupportHeight = this.getColliderTopSupportHeight(
+      x,
+      z,
+      cameraY,
+      playerHeight,
+      0.52
+    );
+    if (colliderSupportHeight !== null) {
+      groundHeight = Math.max(groundHeight, colliderSupportHeight);
     }
 
     return groundHeight;

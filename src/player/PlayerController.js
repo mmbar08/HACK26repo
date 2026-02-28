@@ -14,6 +14,7 @@ export class PlayerController {
     this.mouseSensitivity = 0.0012;
     this.jumpVelocity = 7;
     this.gravity = 18;
+    this.stepUpHeight = 0.45;
 
     this.yaw = Math.PI;
     this.pitch = 0;
@@ -122,12 +123,29 @@ export class PlayerController {
         nextPositionX,
         this.playerCollider,
         this.collisionSize,
-        this.camera.position
+        this.camera.position,
+        'square'
       )
     ) {
       this.camera.position.x = nextPositionX.x;
     } else {
-      this.horizontalVelocity.x = 0;
+      const steppedPositionX = nextPositionX.clone();
+      steppedPositionX.y += this.stepUpHeight;
+
+      if (
+        !this.map.collidesWithWorld(
+          steppedPositionX,
+          this.playerCollider,
+          this.collisionSize,
+          this.camera.position,
+          'square'
+        )
+      ) {
+        this.camera.position.x = steppedPositionX.x;
+        this.camera.position.y = Math.max(this.camera.position.y, steppedPositionX.y);
+      } else {
+        this.horizontalVelocity.x = 0;
+      }
     }
 
     const nextPositionZ = this.camera.position.clone();
@@ -138,12 +156,29 @@ export class PlayerController {
         nextPositionZ,
         this.playerCollider,
         this.collisionSize,
-        this.camera.position
+        this.camera.position,
+        'square'
       )
     ) {
       this.camera.position.z = nextPositionZ.z;
     } else {
-      this.horizontalVelocity.z = 0;
+      const steppedPositionZ = nextPositionZ.clone();
+      steppedPositionZ.y += this.stepUpHeight;
+
+      if (
+        !this.map.collidesWithWorld(
+          steppedPositionZ,
+          this.playerCollider,
+          this.collisionSize,
+          this.camera.position,
+          'square'
+        )
+      ) {
+        this.camera.position.z = steppedPositionZ.z;
+        this.camera.position.y = Math.max(this.camera.position.y, steppedPositionZ.y);
+      } else {
+        this.horizontalVelocity.z = 0;
+      }
     }
 
     this.camera.position.y += this.verticalVelocity * delta;
