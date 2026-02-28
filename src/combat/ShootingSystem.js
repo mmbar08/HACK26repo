@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 
 export class ShootingSystem {
-  constructor(scene, camera, enemyManager) {
+  constructor(scene, camera, enemyManager, worldMap) {
     this.scene = scene;
     this.camera = camera;
     this.enemyManager = enemyManager;
+    this.worldMap = worldMap;
 
     this.shotLaserTtl = 0.1;
+    this.maxLaserRange = 45;
     this.shotRay = new THREE.Raycaster();
+    this.worldRay = new THREE.Raycaster();
     this.screenCenter = new THREE.Vector2(0, 0);
     this.upAxis = new THREE.Vector3(0, 1, 0);
     this.muzzleOffset = new THREE.Vector3(0.35, -0.25, -0.8);
@@ -23,26 +26,37 @@ export class ShootingSystem {
   shoot() {
     this.shotRay.setFromCamera(this.screenCenter, this.camera);
 
-    const hitPoint = this.enemyManager.shoot(this.shotRay);
     const shotStart = this.camera.localToWorld(this.muzzleOffset.clone());
-    const shotDirection = this.camera
-      .getWorldDirection(this.tempVector)
-      .normalize();
+    const shotDirection = this.camera.getWorldDirection(this.tempVector).normalize();
 
-    this.createParticleBurst(shotStart, {
-      color: 0xa4ebff,
-      count: 16,
-      size: 0.075,
-      ttl: 0.14,
-      speed: 7,
-      spread: 0.9,
-      baseDirection: shotDirection,
-      gravityScale: 0,
-    });
+    this.worldRay.set(shotStart, shotDirection);
+    this.worldRay.far = this.maxLaserRange;
 
-    if (hitPoint) {
-      this.createLaserTrace(shotStart, hitPoint);
-      this.createParticleBurst(hitPoint, {
+    const worldHits = this.worldRay.intersectObjects(this.worldMap.getRaycastTargets(), true);
+    const worldHit = worldHits.length ? worldHits[0] : null;
+
+    const enemyHit = this.enemyManager.getClosestShotHit(this.shotRay, this.maxLaserRange);
+    const shouldHitEnemy =
+      enemyHit && (!worldHit || enemyHit.distance <= worldHit.distance);
+
+    let endPoint = shotStart
+      .clone()
+      .add(shotDirection.clone().multiplyScalar(this.maxLaserRange));
+
+    if (worldHit) {
+      endPoint = worldHit.point.clone();
+    }
+
+    if (shouldHitEnemy) {
+      this.enemyManager.applyShotHit(enemyHit.targetEnemy);
+      endPoint = enemyHit.point.clone();
+    }
+
+    this.createLaserTrace(shotStart, endPoint);
+    this.createBeamTrailParticles(shotStart, endPoint);
+
+    if (shouldHitEnemy) {
+      this.createParticleBurst(endPoint, {
         color: 0xffd8a8,
         count: 12,
         size: 0.085,
@@ -51,11 +65,19 @@ export class ShootingSystem {
         spread: 1.1,
         gravityScale: 0.35,
       });
-    } else {
-      const missPoint = shotStart
-        .clone()
-        .add(shotDirection.clone().multiplyScalar(80));
-      this.createLaserTrace(shotStart, missPoint);
+      return;
+    }
+
+    if (worldHit) {
+      this.createParticleBurst(endPoint, {
+        color: 0xc7e7ff,
+        count: 9,
+        size: 0.07,
+        ttl: 0.18,
+        speed: 3.8,
+        spread: 0.9,
+        gravityScale: 0.2,
+      });
     }
   }
 
@@ -151,6 +173,31 @@ export class ShootingSystem {
       maxTtl: ttl,
       gravityScale,
     });
+  }
+
+  createBeamTrailParticles(startPoint, endPoint) {
+    const length = startPoint.distanceTo(endPoint);
+    if (length < 1) {
+      return;
+    }
+
+    const steps = Math.max(6, Math.min(18, Math.floor(length / 2.8)));
+    const point = new THREE.Vector3();
+
+    for (let i = 1; i <= steps; i += 1) {
+      const t = i / (steps + 1);
+      point.lerpVectors(startPoint, endPoint, t);
+
+      this.createParticleBurst(point, {
+        color: 0xff8f2f,
+        count: 3,
+        size: 0.09,
+        ttl: 0.14,
+        speed: 0.35,
+        spread: 0.18,
+        gravityScale: 0,
+      });
+    }
   }
 
   update(delta, gravity) {

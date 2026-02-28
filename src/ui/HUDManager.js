@@ -22,6 +22,117 @@ export class HUDManager {
       'Click to lock pointer | WASD move | Space jump | Mouse look | Left click shoot';
     document.body.appendChild(this.message);
 
+    this.objectiveUi = document.createElement('div');
+    this.objectiveUi.style.position = 'fixed';
+    this.objectiveUi.style.left = '12px';
+    this.objectiveUi.style.top = '84px';
+    this.objectiveUi.style.padding = '8px 10px';
+    this.objectiveUi.style.background = 'rgba(0, 0, 0, 0.45)';
+    this.objectiveUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    this.objectiveUi.style.color = '#e6f4f1';
+    this.objectiveUi.style.fontFamily = 'system-ui, sans-serif';
+    this.objectiveUi.style.fontSize = '12px';
+    this.objectiveUi.textContent = 'Objective: Reach the drill shaft';
+    document.body.appendChild(this.objectiveUi);
+
+    this.rigRiskUi = document.createElement('div');
+    this.rigRiskUi.style.position = 'fixed';
+    this.rigRiskUi.style.left = '12px';
+    this.rigRiskUi.style.top = '124px';
+    this.rigRiskUi.style.padding = '8px 10px';
+    this.rigRiskUi.style.background = 'rgba(0, 0, 0, 0.45)';
+    this.rigRiskUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    this.rigRiskUi.style.color = '#e6f4f1';
+    this.rigRiskUi.style.fontFamily = 'system-ui, sans-serif';
+    this.rigRiskUi.style.fontSize = '12px';
+
+    this.rigRiskLabel = document.createElement('div');
+    this.rigRiskLabel.style.marginBottom = '6px';
+    this.rigRiskLabel.textContent = 'Rig Stability: 100% | 00:00';
+
+    const rigRiskTrack = document.createElement('div');
+    rigRiskTrack.style.width = '210px';
+    rigRiskTrack.style.height = '10px';
+    rigRiskTrack.style.background = 'rgba(255, 255, 255, 0.2)';
+    rigRiskTrack.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+
+    this.rigRiskFill = document.createElement('div');
+    this.rigRiskFill.style.height = '100%';
+    this.rigRiskFill.style.width = '100%';
+    this.rigRiskFill.style.background =
+      'linear-gradient(90deg, #db4646 0%, #f4d03f 50%, #2dc778 100%)';
+
+    rigRiskTrack.appendChild(this.rigRiskFill);
+    this.rigRiskUi.appendChild(this.rigRiskLabel);
+    this.rigRiskUi.appendChild(rigRiskTrack);
+    document.body.appendChild(this.rigRiskUi);
+
+    this.drillHealthUi = document.createElement('div');
+    this.drillHealthUi.style.position = 'fixed';
+    this.drillHealthUi.style.left = '50%';
+    this.drillHealthUi.style.top = '50%';
+    this.drillHealthUi.style.transform = 'translate(-50%, -130%)';
+    this.drillHealthUi.style.padding = '8px 10px';
+    this.drillHealthUi.style.background = 'rgba(0, 0, 0, 0.45)';
+    this.drillHealthUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    this.drillHealthUi.style.color = '#e6f4f1';
+    this.drillHealthUi.style.fontFamily = 'system-ui, sans-serif';
+    this.drillHealthUi.style.fontSize = '12px';
+
+    this.drillHealthLabel = document.createElement('div');
+    this.drillHealthLabel.style.marginBottom = '6px';
+    this.drillHealthLabel.textContent = 'Drill Durability: 100%';
+
+    const drillHealthTrack = document.createElement('div');
+    drillHealthTrack.style.width = '210px';
+    drillHealthTrack.style.height = '10px';
+    drillHealthTrack.style.background = 'rgba(255, 255, 255, 0.2)';
+    drillHealthTrack.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+
+    this.drillHealthFill = document.createElement('div');
+    this.drillHealthFill.style.height = '100%';
+    this.drillHealthFill.style.width = '100%';
+    this.drillHealthFill.style.background =
+      'linear-gradient(90deg, #d53f3f 0%, #f4d03f 55%, #25c46b 100%)';
+
+    drillHealthTrack.appendChild(this.drillHealthFill);
+    this.drillHealthUi.appendChild(this.drillHealthLabel);
+    this.drillHealthUi.appendChild(drillHealthTrack);
+    document.body.appendChild(this.drillHealthUi);
+
+    this.repairUi = document.createElement('div');
+    this.repairUi.style.position = 'fixed';
+    this.repairUi.style.left = '50%';
+    this.repairUi.style.bottom = '90px';
+    this.repairUi.style.transform = 'translateX(-50%)';
+    this.repairUi.style.padding = '8px 10px';
+    this.repairUi.style.background = 'rgba(0, 0, 0, 0.45)';
+    this.repairUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    this.repairUi.style.color = '#e6f4f1';
+    this.repairUi.style.fontFamily = 'system-ui, sans-serif';
+    this.repairUi.style.fontSize = '12px';
+    this.repairUi.style.display = 'none';
+
+    this.repairLabel = document.createElement('div');
+    this.repairLabel.style.marginBottom = '6px';
+    this.repairLabel.textContent = 'Hold E to repair drill shaft';
+
+    const repairTrack = document.createElement('div');
+    repairTrack.style.width = '220px';
+    repairTrack.style.height = '10px';
+    repairTrack.style.background = 'rgba(255, 255, 255, 0.2)';
+    repairTrack.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+
+    this.repairFill = document.createElement('div');
+    this.repairFill.style.height = '100%';
+    this.repairFill.style.width = '0%';
+    this.repairFill.style.background = 'linear-gradient(90deg, #3aa7ff 0%, #78f0ff 100%)';
+
+    repairTrack.appendChild(this.repairFill);
+    this.repairUi.appendChild(this.repairLabel);
+    this.repairUi.appendChild(repairTrack);
+    document.body.appendChild(this.repairUi);
+
     this.fpsCounter = document.createElement('div');
     this.fpsCounter.style.position = 'fixed';
     this.fpsCounter.style.top = '12px';
@@ -147,6 +258,57 @@ export class HUDManager {
     const percent = (current / max) * 100;
     this.healthFill.style.width = `${Math.max(0, percent)}%`;
     this.healthLabel.textContent = `Health: ${Math.ceil(current)}`;
+  }
+
+  setObjective(text) {
+    this.objectiveUi.textContent = `Objective: ${text}`;
+  }
+
+  setRigFailure(remainingSeconds, ratio) {
+    const minutes = Math.floor(remainingSeconds / 60);
+    const seconds = Math.floor(remainingSeconds % 60);
+    const stabilityPercent = Math.round(Math.max(0, ratio) * 100);
+    this.rigRiskLabel.textContent = `Rig Stability: ${stabilityPercent}% | ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    this.rigRiskFill.style.width = `${stabilityPercent}%`;
+  }
+
+  setDrillDurability(current, max) {
+    const ratio = max > 0 ? current / max : 0;
+    const durabilityPercent = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+    this.drillHealthLabel.textContent = `Drill Durability: ${durabilityPercent}%`;
+    this.drillHealthFill.style.width = `${durabilityPercent}%`;
+  }
+
+  updateDrillDurabilityAnchor(drillPosition, camera) {
+    this.clipSpaceVector.copy(drillPosition);
+    this.clipSpaceVector.y += 3.6;
+    this.clipSpaceVector.project(camera);
+
+    const onScreen =
+      this.clipSpaceVector.z >= -1 &&
+      this.clipSpaceVector.z <= 1 &&
+      this.clipSpaceVector.x >= -1.2 &&
+      this.clipSpaceVector.x <= 1.2 &&
+      this.clipSpaceVector.y >= -1.2 &&
+      this.clipSpaceVector.y <= 1.2;
+
+    if (!onScreen) {
+      this.drillHealthUi.style.display = 'none';
+      return;
+    }
+
+    const x = (this.clipSpaceVector.x * 0.5 + 0.5) * window.innerWidth;
+    const y = (-this.clipSpaceVector.y * 0.5 + 0.5) * window.innerHeight;
+
+    this.drillHealthUi.style.display = 'block';
+    this.drillHealthUi.style.left = `${THREE.MathUtils.clamp(x, 120, window.innerWidth - 120)}px`;
+    this.drillHealthUi.style.top = `${THREE.MathUtils.clamp(y, 60, window.innerHeight - 40)}px`;
+  }
+
+  setRepairProgress(visible, ratio, text) {
+    this.repairUi.style.display = visible ? 'block' : 'none';
+    this.repairLabel.textContent = text;
+    this.repairFill.style.width = `${Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%`;
   }
 
   triggerDamageFlash(normalizedAmount) {

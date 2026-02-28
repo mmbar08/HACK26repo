@@ -117,7 +117,14 @@ export class PlayerController {
     const nextPositionX = this.camera.position.clone();
     nextPositionX.x += this.horizontalVelocity.x * delta;
 
-    if (!this.map.collidesWithWorld(nextPositionX, this.playerCollider, this.collisionSize)) {
+    if (
+      !this.map.collidesWithWorld(
+        nextPositionX,
+        this.playerCollider,
+        this.collisionSize,
+        this.camera.position
+      )
+    ) {
       this.camera.position.x = nextPositionX.x;
     } else {
       this.horizontalVelocity.x = 0;
@@ -126,7 +133,14 @@ export class PlayerController {
     const nextPositionZ = this.camera.position.clone();
     nextPositionZ.z += this.horizontalVelocity.z * delta;
 
-    if (!this.map.collidesWithWorld(nextPositionZ, this.playerCollider, this.collisionSize)) {
+    if (
+      !this.map.collidesWithWorld(
+        nextPositionZ,
+        this.playerCollider,
+        this.collisionSize,
+        this.camera.position
+      )
+    ) {
       this.camera.position.z = nextPositionZ.z;
     } else {
       this.horizontalVelocity.z = 0;

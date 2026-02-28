@@ -9,6 +9,8 @@ export class InputManager {
       'KeyA',
       'KeyS',
       'KeyD',
+      'KeyE',
+      'ShiftLeft',
       'Space',
       'ArrowUp',
       'ArrowDown',
@@ -95,6 +97,9 @@ export class InputManager {
     }
     if (key === 'd') {
       return 'KeyD';
+    }
+    if (key === 'e') {
+      return 'KeyE';
     }
     if (key === ' ') {
       return 'Space';

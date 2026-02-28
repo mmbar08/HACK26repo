@@ -38,13 +38,18 @@ function createEnemyUi(typeName) {
 }
 
 export class EnemyManager {
-  constructor(scene, _hud, spawnConfigs, playerRadius = 0.55) {
+  constructor(scene, _hud, spawnConfigs, playerRadius = 0.55, worldMap = null) {
     this.scene = scene;
     this.enemies = [];
     this.enemyId = 1;
     this.playerRadius = playerRadius;
+    this.worldMap = worldMap;
     this.tempVector = new THREE.Vector3();
+    this.tempPosition = new THREE.Vector3();
     this.clipSpaceVector = new THREE.Vector3();
+    this.enemyCollider = new THREE.Box3();
+
+    this.enemyCollisionSize = new THREE.Vector3(1.6, 2.4, 1.6);
 
     for (const config of spawnConfigs) {
       this.spawn(config);
@@ -95,7 +100,19 @@ export class EnemyManager {
 
       if (distance > 0.001) {
         this.tempVector.normalize();
-        enemy.mesh.position.addScaledVector(this.tempVector, enemy.speed * delta);
+        const moveStep = enemy.speed * delta;
+
+        this.tempPosition.copy(enemy.mesh.position);
+        this.tempPosition.x += this.tempVector.x * moveStep;
+        if (!this.collidesWithWorld(this.tempPosition, enemy.mesh.position)) {
+          enemy.mesh.position.x = this.tempPosition.x;
+        }
+
+        this.tempPosition.copy(enemy.mesh.position);
+        this.tempPosition.z += this.tempVector.z * moveStep;
+        if (!this.collidesWithWorld(this.tempPosition, enemy.mesh.position)) {
+          enemy.mesh.position.z = this.tempPosition.z;
+        }
       }
 
       enemy.mesh.rotation.y += delta * 1.7;
@@ -106,6 +123,19 @@ export class EnemyManager {
     }
 
     return totalDamage;
+  }
+
+  collidesWithWorld(nextPosition, currentPosition) {
+    if (!this.worldMap) {
+      return false;
+    }
+
+    return this.worldMap.collidesWithWorld(
+      nextPosition,
+      this.enemyCollider,
+      this.enemyCollisionSize,
+      currentPosition
+    );
   }
 
   resolvePlayerCollision(playerPosition) {
@@ -129,7 +159,7 @@ export class EnemyManager {
     }
   }
 
-  shoot(raycaster) {
+  getClosestShotHit(raycaster, maxDistance = Infinity) {
     const aliveMeshes = this.enemies
       .filter((enemy) => enemy.alive)
       .map((enemy) => enemy.mesh);
@@ -145,13 +175,29 @@ export class EnemyManager {
     }
 
     const hit = hits[0];
+    if (hit.distance > maxDistance) {
+      return null;
+    }
+
     const targetEnemy = this.enemies.find((enemy) => enemy.mesh === hit.object);
 
     if (!targetEnemy) {
       return null;
     }
 
-    targetEnemy.health = Math.max(0, targetEnemy.health - 34);
+    return {
+      targetEnemy,
+      point: hit.point.clone(),
+      distance: hit.distance,
+    };
+  }
+
+  applyShotHit(targetEnemy, damage = 34) {
+    if (!targetEnemy || !targetEnemy.alive) {
+      return;
+    }
+
+    targetEnemy.health = Math.max(0, targetEnemy.health - damage);
     targetEnemy.mesh.material.color.setHex(0xffffff);
 
     setTimeout(() => {
@@ -165,8 +211,18 @@ export class EnemyManager {
       targetEnemy.mesh.visible = false;
       targetEnemy.ui.container.style.display = 'none';
     }
+  }
 
-    return hit.point.clone();
+  shoot(raycaster, maxDistance = Infinity) {
+    const hit = this.getClosestShotHit(raycaster, maxDistance);
+
+    if (!hit) {
+      return null;
+    }
+
+    this.applyShotHit(hit.targetEnemy);
+
+    return hit.point;
   }
 
   updateUi(camera) {
