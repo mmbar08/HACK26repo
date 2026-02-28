@@ -48,10 +48,17 @@ const input = new InputManager(renderer.domElement);
 const player = new PlayerController(camera, input, oilRigMap);
 const gameState = new GameStateMachine();
 
+// optional: specify a modelUrl or textureUrl for each enemy.  the
+// EnemyManager now loads these assets during initialize().  you can keep
+// using simple color entries if you prefer.
+// the loader will try both the raw string and variants with/without a
+// leading slash or `dist/` prefix, so you can safely reference the file
+// using whatever path your build/download pipeline produces.
 const enemySpawnConfigs = [
   {
     typeName: 'Oil Zombie',
     position: { x: 0, z: -16 },
+    modelUrl: 'dist/assets/models/oil_zombie.glb',
     color: 0x6a3dad,
     health: 100,
     speed: 2.8,
@@ -59,26 +66,30 @@ const enemySpawnConfigs = [
     damagePerSecond: 10,
   },
   {
-    typeName: 'Oil Brute',
+    typeName: 'Oil Zombie',
     position: { x: 6, z: -26 },
-    color: 0xd04f2a,
-    health: 90,
-    speed: 3.2,
-    attackRadius: 2.4,
-    damagePerSecond: 12,
+    modelUrl: 'dist/assets/models/oil_zombie.glb',
+    color: 0x6a3dad,
+    health: 100,
+    speed: 2.8,
+    attackRadius: 2.2,
+    damagePerSecond: 10,
   },
   {
-    typeName: 'Oil Stalker',
+    typeName: 'Oil Zombie',
     position: { x: -8, z: -34 },
-    color: 0x00897b,
-    health: 110,
-    speed: 2.6,
-    attackRadius: 2.6,
-    damagePerSecond: 14,
+    modelUrl: 'dist/assets/models/oil_zombie.glb',
+    color: 0x6a3dad,
+    health: 100,
+    speed: 2.8,
+    attackRadius: 2.2,
+    damagePerSecond: 10,
   },
 ];
 
 const enemyManager = new EnemyManager(scene, hud, enemySpawnConfigs, 0.55, oilRigMap);
+// load textures/models before using the manager
+await enemyManager.initialize();
 const shootingSystem = new ShootingSystem(scene, camera, enemyManager, oilRigMap);
 const rigFailure = new RigFailureSystem(360);
 const drillObjective = new DrillShaftObjective(oilRigMap.getDrillPosition(), 4.2);

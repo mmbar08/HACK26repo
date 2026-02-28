@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { ModelLoader } from '../scene/ModelLoader.js';
+import { TextureAssetLoader } from '../scene/TextureLoader.js';
 
 function createEnemyUi(typeName) {
   const container = document.createElement('div');
@@ -38,6 +40,61 @@ function createEnemyUi(typeName) {
 }
 
 export class EnemyManager {
+  // attempt to load a model using the provided URL first; if that fails
+  // and the path starts with "dist/" we'll try again after stripping it.
+  // this lets callers continue using exactly the string their build process
+  // generates while still working in dev where "dist/" may not be served.
+  // attempt to load a model using various permutations of the URL in
+  // case the server is mounted at `/` or `/dist/`.  order matters – we try
+  // the original string first, then add a leading slash, then strip any
+  // leading `dist/` (with or without the slash) and try again.
+  async fetchModelWithFallback(url) {
+    const candidates = [];
+    candidates.push(url);
+    if (!url.startsWith('/')) {
+      candidates.push('/' + url);
+    }
+    // strip dist prefix versions
+    for (const c of [...candidates]) {
+      if (c.startsWith('/dist/')) {
+        candidates.push(c.replace(/^\/?dist\//, '/'));
+      }
+    }
+
+    let firstErr;
+    for (const c of candidates) {
+      try {
+        return await this.modelLoader.loadModel(c);
+      } catch (err) {
+        firstErr = firstErr || err;
+      }
+    }
+    throw firstErr;
+  }
+
+  async fetchTextureWithFallback(url) {
+    const candidates = [];
+    candidates.push(url);
+    if (!url.startsWith('/')) {
+      candidates.push('/' + url);
+    }
+    for (const c of [...candidates]) {
+      if (c.startsWith('/dist/')) {
+        candidates.push(c.replace(/^\/?dist\//, '/'));
+      }
+    }
+
+    let firstErr;
+    for (const c of candidates) {
+      try {
+        return await this.textureLoader.loadTexture(c);
+      } catch (err) {
+        firstErr = firstErr || err;
+      }
+    }
+    throw firstErr;
+  }
+
   constructor(scene, _hud, spawnConfigs, playerRadius = 0.55, worldMap = null) {
     this.scene = scene;
     this.enemies = [];
@@ -52,22 +109,84 @@ export class EnemyManager {
 
     this.enemyCollisionSize = new THREE.Vector3(1.6, 2.4, 1.6);
 
-    for (const config of spawnConfigs) {
-      this.spawn(config);
-    }
+    // loaders for optional models/textures
+    this.modelLoader = new ModelLoader();
+    this.textureLoader = new TextureAssetLoader();
+
+    // keep the spawn configs so initialization can run later
+    this.spawnConfigs = spawnConfigs;
   }
 
-  spawn(config) {
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(1.2, 2.4, 1.2),
-      new THREE.MeshStandardMaterial({
-        color: config.color,
-        roughness: 0.85,
-        metalness: 0.16,
-      })
-    );
+  // spawn may perform asynchronous loading if the configuration includes
+  // a modelUrl or textureUrl.  Returns a promise that resolves when the
+  // enemy is ready.
+  async spawn(config) {
+    let mesh;
 
-    mesh.position.set(config.position.x, 1.2, config.position.z);
+    // load a model if one is specified, otherwise fall back to a simple box
+    if (config.modelUrl) {
+      const url = config.modelUrl; // use exactly what caller provided
+      try {
+        const loaded = await this.fetchModelWithFallback(url);
+        if (loaded) {
+          mesh = loaded.clone();
+          console.log('EnemyManager: successfully loaded model for', config.typeName, url);
+        }
+
+        if (mesh && config.scale) {
+          mesh.scale.setScalar(config.scale);
+        }
+
+        // if a texture is specified, apply it to every mesh material in the
+        // hierarchy once the texture has loaded
+        if (mesh && config.textureUrl) {
+          const textureUrl = config.textureUrl;
+          try {
+            const texture = await this.fetchTextureWithFallback(textureUrl);
+            texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+            mesh.traverse((child) => {
+              if (child.isMesh) {
+                child.material = new THREE.MeshStandardMaterial({
+                  map: texture,
+                  roughness: 0.85,
+                  metalness: 0.16,
+                });
+              }
+            });
+          } catch (err) {
+            console.warn('EnemyManager: failed to load texture for model', textureUrl, err);
+          }
+        }
+      } catch (err) {
+        console.warn('EnemyManager: failed to load model', url, err);
+        mesh = null; // fall back to box below
+      }
+    }
+
+    if (!mesh) {
+      // simple box enemy, apply either color or texture
+      const materialOptions = { roughness: 0.85, metalness: 0.16 };
+      if (config.textureUrl) {
+        const textureUrl = config.textureUrl;
+        try {
+          const texture = await this.fetchTextureWithFallback(textureUrl);
+          texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+          materialOptions.map = texture;
+        } catch (err) {
+          console.warn('EnemyManager: failed to load box texture', textureUrl, err);
+        }
+      } else {
+        materialOptions.color = config.color;
+      }
+
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.4, 1.2),
+        new THREE.MeshStandardMaterial(materialOptions)
+      );
+    }
+
+    // default y position if not specified
+    const yPos = config.position.y !== undefined ? config.position.y : 1.2;
+    mesh.position.set(config.position.x, yPos, config.position.z);
     this.scene.add(mesh);
     const ui = createEnemyUi(config.typeName);
 
@@ -114,9 +233,12 @@ export class EnemyManager {
         if (!this.collidesWithWorld(this.tempPosition, enemy.mesh.position)) {
           enemy.mesh.position.z = this.tempPosition.z;
         }
+
+        // rotate to face the player horizontally
+        enemy.mesh.lookAt(playerPosition.x, enemy.mesh.position.y, playerPosition.z);
       }
 
-      enemy.mesh.rotation.y += delta * 1.7;
+      // remove continuous spinning; keep a small adjustment to avoid jerks
 
       const verticalDistance = Math.abs(playerPosition.y - enemy.mesh.position.y);
       if (distance <= enemy.attackRadius && verticalDistance <= this.attackVerticalRange) {
@@ -125,6 +247,13 @@ export class EnemyManager {
     }
 
     return totalDamage;
+  }
+
+  // call this once all spawnConfigs have been processed
+  async initialize() {
+    for (const config of this.spawnConfigs) {
+      await this.spawn(config);
+    }
   }
 
   collidesWithWorld(nextPosition, currentPosition) {
@@ -145,15 +274,16 @@ export class EnemyManager {
   }
 
   getClosestShotHit(raycaster, maxDistance = Infinity) {
-    const aliveMeshes = this.enemies
-      .filter((enemy) => enemy.alive)
-      .map((enemy) => enemy.mesh);
-
-    if (!aliveMeshes.length) {
+    const aliveEnemies = this.enemies.filter((enemy) => enemy.alive);
+    if (!aliveEnemies.length) {
       return null;
     }
 
-    const hits = raycaster.intersectObjects(aliveMeshes, false);
+    // gather root meshes for raycasting
+    const aliveMeshes = aliveEnemies.map((enemy) => enemy.mesh);
+
+    // recurse into groups so that hits on children count
+    const hits = raycaster.intersectObjects(aliveMeshes, true);
 
     if (!hits.length) {
       return null;
@@ -164,14 +294,27 @@ export class EnemyManager {
       return null;
     }
 
-    const targetEnemy = this.enemies.find((enemy) => enemy.mesh === hit.object);
+    // find which enemy contains the hit object; walk up the parent chain
+    let foundEnemy = null;
+    for (const enemy of aliveEnemies) {
+      let obj = hit.object;
+      while (obj) {
+        if (obj === enemy.mesh) {
+          foundEnemy = enemy;
+          break;
+        }
+        obj = obj.parent;
+      }
+      if (foundEnemy) break;
+    }
 
-    if (!targetEnemy) {
+    if (!foundEnemy) {
+      console.warn('EnemyManager: hit object did not match any enemy mesh', hit.object);
       return null;
     }
 
     return {
-      targetEnemy,
+      targetEnemy: foundEnemy,
       point: hit.point.clone(),
       distance: hit.distance,
     };
@@ -182,12 +325,32 @@ export class EnemyManager {
       return;
     }
 
+    console.log('EnemyManager.applyShotHit', targetEnemy.id, 'before', targetEnemy.health, 'damage', damage);
     targetEnemy.health = Math.max(0, targetEnemy.health - damage);
-    targetEnemy.mesh.material.color.setHex(0xffffff);
+    console.log('EnemyManager.applyShotHit after', targetEnemy.health);
+
+    // flash the material(s) on every mesh in the hierarchy
+    targetEnemy.mesh.traverse((child) => {
+      if (child.isMesh && child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => m.color && m.color.setHex(0xffffff));
+        } else if (child.material.color) {
+          child.material.color.setHex(0xffffff);
+        }
+      }
+    });
 
     setTimeout(() => {
       if (targetEnemy.alive) {
-        targetEnemy.mesh.material.color.setHex(targetEnemy.color);
+        targetEnemy.mesh.traverse((child) => {
+          if (child.isMesh && child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach((m) => m.color && m.color.setHex(targetEnemy.color));
+            } else if (child.material.color) {
+              child.material.color.setHex(targetEnemy.color);
+            }
+          }
+        });
       }
     }, 75);
 
