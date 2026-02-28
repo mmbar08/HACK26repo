@@ -51,6 +51,8 @@ const levelConfigs = [
       hasFire: false,
       useBlueSky: true,
       useGlobalLights: true,
+      globalLightBoost: 1.35,
+      hasDrillShaft: false,
     },
   },
   {
@@ -58,6 +60,12 @@ const levelConfigs = [
     enemyCount: 10,
     map: {
       hasWallsRoof: true,
+      hasLightGrid: true,
+      hasFire: true,
+      useBlueSky: false,
+      useGlobalLights: true,
+      globalLightBoost: 1.95,
+      hasDrillShaft: false,
     },
   },
   {
@@ -65,12 +73,20 @@ const levelConfigs = [
     enemyCount: 12,
     map: {
       hasWallsRoof: true,
+      hasLightGrid: true,
+      hasFire: true,
+      useBlueSky: false,
+      useGlobalLights: true,
+      globalLightBoost: 1.35,
+      hasDrillShaft: true,
+      fireCountMultiplier: 1.9,
     },
   },
 ];
 let currentLevelIndex = 0;
 
 oilRigMap.applyLevelConfig(levelConfigs[currentLevelIndex].map);
+oilRigMap.regenerateLevelEnvironment();
 
 const enemySpawnConfigs = oilZombieSpawner.spawn(levelConfigs[currentLevelIndex].enemyCount, {
   playerPosition: { x: camera.position.x, z: camera.position.z },
@@ -131,14 +147,15 @@ function applyCurrentLevelConfig() {
   oilRigMap.applyLevelConfig(levelConfigs[currentLevelIndex].map);
 }
 
-function advanceLevel() {
-  if (currentLevelIndex >= levelConfigs.length - 1) {
-    gameState.setState('success');
-    return;
+function switchToLevel(nextLevelIndex) {
+  const clampedIndex = THREE.MathUtils.clamp(nextLevelIndex, 0, levelConfigs.length - 1);
+  if (clampedIndex === currentLevelIndex) {
+    return false;
   }
 
-  currentLevelIndex += 1;
+  currentLevelIndex = clampedIndex;
   applyCurrentLevelConfig();
+  oilRigMap.regenerateLevelEnvironment();
   rigFailure.reset();
   repairInteraction.reset();
   drillObjective.reset();
@@ -151,6 +168,16 @@ function advanceLevel() {
   hud.setLevelStatus(currentLevelIndex + 1, levelConfigs.length);
   hud.showMessage(`${getLevelLabel()} deployed.`);
   hud.setObjective('Drop into the oil rig');
+  return true;
+}
+
+function advanceLevel() {
+  if (currentLevelIndex >= levelConfigs.length - 1) {
+    gameState.setState('success');
+    return;
+  }
+
+  switchToLevel(currentLevelIndex + 1);
 }
 
 function beginFailureSequence(reasonText) {
@@ -295,7 +322,31 @@ document.addEventListener('mousedown', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.code !== 'F2' && event.code !== 'F3') {
+  const isLevelUpHotkey = event.code === 'Equal' || event.code === 'NumpadAdd';
+  const isLevelDownHotkey = event.code === 'Minus' || event.code === 'NumpadSubtract';
+
+  if (
+    event.code !== 'F2' &&
+    event.code !== 'F3' &&
+    !isLevelUpHotkey &&
+    !isLevelDownHotkey
+  ) {
+    return;
+  }
+
+  if (isLevelUpHotkey) {
+    const changed = switchToLevel(currentLevelIndex + 1);
+    if (!changed) {
+      hud.showMessage(`Already at ${getLevelLabel()}.`);
+    }
+    return;
+  }
+
+  if (isLevelDownHotkey) {
+    const changed = switchToLevel(currentLevelIndex - 1);
+    if (!changed) {
+      hud.showMessage(`Already at ${getLevelLabel()}.`);
+    }
     return;
   }
 

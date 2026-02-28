@@ -91,6 +91,19 @@ export class OilRigMap {
       hasFire: true,
       useBlueSky: false,
       useGlobalLights: false,
+      globalLightBoost: 1,
+      hasDrillShaft: true,
+      fireCountMultiplier: 1,
+    };
+    this.defaultLevelConfig = {
+      hasWallsRoof: true,
+      hasLightGrid: true,
+      hasFire: true,
+      useBlueSky: false,
+      useGlobalLights: false,
+      globalLightBoost: 1,
+      hasDrillShaft: true,
+      fireCountMultiplier: 1,
     };
     this.defaultBackgroundColor = this.scene.background?.isColor
       ? this.scene.background.clone()
@@ -101,14 +114,23 @@ export class OilRigMap {
     this.defaultFogNear = this.scene.fog?.isFog ? this.scene.fog.near : 18;
     this.defaultFogFar = this.scene.fog?.isFog ? this.scene.fog.far : 95;
 
-    this.globalSkyLight = new THREE.HemisphereLight(0x90c9ff, 0x5e7a95, 1.1);
+    this.globalSkyLightBaseIntensity = 1.1;
+    this.globalSunLightBaseIntensity = 1.35;
+    this.globalSkyLight = new THREE.HemisphereLight(
+      0x90c9ff,
+      0x5e7a95,
+      this.globalSkyLightBaseIntensity
+    );
     this.globalSkyLight.visible = false;
     this.scene.add(this.globalSkyLight);
 
-    this.globalSunLight = new THREE.DirectionalLight(0xe4f3ff, 1.35);
+    this.globalSunLight = new THREE.DirectionalLight(0xe4f3ff, this.globalSunLightBaseIntensity);
     this.globalSunLight.position.set(36, 88, 28);
     this.globalSunLight.visible = false;
     this.scene.add(this.globalSunLight);
+    this.loadedModelTemplates = [];
+    this.generatedRoots = [];
+    this.generatedColliderEntries = [];
     this.rampMeshes = [];
     this.invisibleBlockerDebugVisible = false;
     this.invisibleBlockerHelpers = [];
@@ -215,7 +237,7 @@ export class OilRigMap {
     this.raycastObjects.push(this.rigTower);
 
     this.addPlatformSurface(this.rigFloor, this.levelSize, this.levelSize, 0);
-    this.addStaticCollider(this.drillShaft, 5.2, 12, 5.2, true);
+    this.drillShaftCollider = this.addStaticCollider(this.drillShaft, 5.2, 12, 5.2, true);
     this.addStaticCollider(this.rigTower, 14, 10, 14, true);
   }
 
@@ -225,14 +247,12 @@ export class OilRigMap {
       this.applyPbrTextures(),
     ]);
 
-    const templates = loadResults
+    this.loadedModelTemplates = loadResults
       .map((result, index) => ({ result, config: this.modelConfigs[index] }))
       .filter(({ result }) => result.status === 'fulfilled')
       .map(({ result, config }) => ({ scene: result.value, config }));
 
-    this.generateElevatedPlatforms();
-    this.createFireEmitters();
-    this.scatterProceduralProps(templates);
+    this.regenerateLevelEnvironment();
   }
 
   createInteriorStructure() {
@@ -320,15 +340,81 @@ export class OilRigMap {
 
   applyLevelConfig(config = {}) {
     this.levelConfig = {
-      ...this.levelConfig,
+      ...this.defaultLevelConfig,
       ...config,
     };
 
     this.setInteriorEnabled(this.levelConfig.hasWallsRoof !== false);
     this.setLightGridEnabled(this.levelConfig.hasLightGrid !== false);
     this.setFireEnabled(this.levelConfig.hasFire !== false);
-    this.setGlobalLightingEnabled(this.levelConfig.useGlobalLights === true);
+    this.setGlobalLightingEnabled(
+      this.levelConfig.useGlobalLights === true,
+      this.levelConfig.globalLightBoost ?? 1
+    );
     this.setSkyEnvironment(this.levelConfig.useBlueSky === true);
+    this.setDrillShaftEnabled(this.levelConfig.hasDrillShaft !== false);
+  }
+
+  clearGeneratedEnvironment() {
+    for (const particleSystem of this.fireParticleSystems) {
+      this.scene.remove(particleSystem.points);
+      particleSystem.geometry.dispose();
+      particleSystem.points.material.dispose();
+    }
+
+    for (const emitter of this.fireEmitters) {
+      this.scene.remove(emitter.light);
+    }
+
+    this.fireEmitters = [];
+    this.fireParticleSystems = [];
+
+    for (const root of this.generatedRoots) {
+      root.traverse((child) => {
+        if (child?.isObject3D) {
+          this.removeRaycastObject(child);
+        }
+
+        if (child?.isMesh) {
+          child.geometry?.dispose?.();
+          if (Array.isArray(child.material)) {
+            for (const material of child.material) {
+              material?.dispose?.();
+            }
+          } else {
+            child.material?.dispose?.();
+          }
+        }
+      });
+
+      if (root.parent) {
+        root.parent.remove(root);
+      }
+    }
+
+    for (const colliderEntry of this.generatedColliderEntries) {
+      const index = this.hullColliderEntries.indexOf(colliderEntry);
+      if (index >= 0) {
+        this.hullColliderEntries.splice(index, 1);
+      }
+    }
+
+    this.generatedRoots = [];
+    this.generatedColliderEntries = [];
+    this.rampMeshes = [];
+    this.rampSurfaces = [];
+    this.rampForbiddenZones = [];
+    this.elevatedPlatformZones = [];
+    this.platformSurfaces = [];
+    this.addPlatformSurface(this.rigFloor, this.levelSize, this.levelSize, 0);
+  }
+
+  regenerateLevelEnvironment() {
+    this.clearGeneratedEnvironment();
+    this.generateElevatedPlatforms();
+    this.createFireEmitters();
+    this.scatterProceduralProps(this.loadedModelTemplates);
+    this.setFireEnabled(this.levelConfig.hasFire !== false);
   }
 
   setLightGridEnabled(enabled) {
@@ -353,9 +439,26 @@ export class OilRigMap {
     }
   }
 
-  setGlobalLightingEnabled(enabled) {
+  setGlobalLightingEnabled(enabled, boost = 1) {
+    const intensityBoost = Math.max(0.1, boost);
+    this.globalSkyLight.intensity = this.globalSkyLightBaseIntensity * intensityBoost;
+    this.globalSunLight.intensity = this.globalSunLightBaseIntensity * intensityBoost;
     this.globalSkyLight.visible = enabled;
     this.globalSunLight.visible = enabled;
+  }
+
+  setDrillShaftEnabled(enabled) {
+    this.drillShaft.visible = enabled;
+
+    if (enabled) {
+      this.addRaycastObject(this.drillShaft);
+    } else {
+      this.removeRaycastObject(this.drillShaft);
+    }
+
+    if (this.drillShaftCollider) {
+      this.drillShaftCollider.enabled = enabled;
+    }
   }
 
   setSkyEnvironment(useBlueSky) {
@@ -514,7 +617,12 @@ export class OilRigMap {
   }
 
   createFireEmitters() {
-    const emittersTarget = THREE.MathUtils.randInt(4, 6);
+    if (this.levelConfig.hasFire === false) {
+      return;
+    }
+
+    const fireCountMultiplier = Math.max(0, this.levelConfig.fireCountMultiplier ?? 1);
+    const emittersTarget = Math.max(0, Math.round(THREE.MathUtils.randInt(4, 6) * fireCountMultiplier));
     const halfLevel = this.levelSize * 0.5 - 8;
     let attempts = 0;
 
@@ -845,6 +953,10 @@ export class OilRigMap {
         continue;
       }
 
+      if (this.intersectsCenterExclusion(zone.minX, zone.maxX, zone.minZ, zone.maxZ)) {
+        continue;
+      }
+
       const overlapsExisting = this.elevatedPlatformZones.some((existing) => {
         const separated =
           zone.maxX + 8 <= existing.minX ||
@@ -875,7 +987,11 @@ export class OilRigMap {
 
       this.scene.add(platformMesh);
       this.raycastObjects.push(platformMesh);
-      this.addStaticCollider(platformMesh, size, height, size, false);
+      const platformCollider = this.addStaticCollider(platformMesh, size, height, size, false);
+      this.generatedRoots.push(platformMesh);
+      if (platformCollider) {
+        this.generatedColliderEntries.push(platformCollider);
+      }
       this.addPlatformSurface(platformMesh, size, size, height);
 
       this.elevatedPlatformZones.push(zone);
@@ -992,6 +1108,11 @@ export class OilRigMap {
 
     const repeatX = Math.max(1.2, rampWidth / 6);
     const repeatY = Math.max(1.2, rampRunLength / 6);
+
+    if (this.intersectsCenterExclusion(minX, maxX, minZ, maxZ)) {
+      return;
+    }
+
     const rampPbrSet = this.getRandomNonRubberPbrSet();
     const material = rampPbrSet
       ? this.createPbrMaterialFromSet(rampPbrSet, repeatX, repeatY, {
@@ -1033,11 +1154,15 @@ export class OilRigMap {
     this.scene.add(rampMesh);
     this.raycastObjects.push(rampMesh);
     this.rampMeshes.push(rampMesh);
-    this.addStaticColliderFromObject(rampMesh, {
+    const rampCollider = this.addStaticColliderFromObject(rampMesh, {
       padding: 0.01,
       colliderScale: 1,
       color: 0x00ffaa,
     });
+    this.generatedRoots.push(rampMesh);
+    if (rampCollider) {
+      this.generatedColliderEntries.push(rampCollider);
+    }
 
     this.rampForbiddenZones.push({
       minX: minX - 0.6,
@@ -1114,10 +1239,14 @@ export class OilRigMap {
           child.matrixAutoUpdate = false;
         }
       });
-      this.addStaticColliderFromObject(prop, {
+      const propCollider = this.addStaticColliderFromObject(prop, {
         padding: 0.03,
         colliderScale: chosenTemplate?.config?.colliderScale ?? 0.9,
       });
+      this.generatedRoots.push(prop);
+      if (propCollider) {
+        this.generatedColliderEntries.push(propCollider);
+      }
     }
   }
 
@@ -1298,6 +1427,12 @@ export class OilRigMap {
     return !separated;
   }
 
+  intersectsCenterExclusion(minX, maxX, minZ, maxZ, radius = this.centerPropExclusionRadius) {
+    const closestX = THREE.MathUtils.clamp(0, minX, maxX);
+    const closestZ = THREE.MathUtils.clamp(0, minZ, maxZ);
+    return Math.hypot(closestX, closestZ) < radius;
+  }
+
   getRandomSpawnSurface() {
     if (!this.platformSurfaces.length) {
       return null;
@@ -1320,14 +1455,14 @@ export class OilRigMap {
   }
 
   isValidPropPlacement(x, z, halfWidth, halfDepth, surface) {
-    if (Math.hypot(x, z) < this.centerPropExclusionRadius) {
-      return false;
-    }
-
     const minX = x - halfWidth;
     const maxX = x + halfWidth;
     const minZ = z - halfDepth;
     const maxZ = z + halfDepth;
+
+    if (this.intersectsCenterExclusion(minX, maxX, minZ, maxZ)) {
+      return false;
+    }
 
     for (const zone of this.rampForbiddenZones) {
       if (this.footprintIntersectsZone(minX, maxX, minZ, maxZ, zone)) {
@@ -1721,7 +1856,7 @@ export class OilRigMap {
     const halfWidth = width / 2;
     const halfDepth = depth / 2;
 
-    this.registerHullCollider(
+    return this.registerHullCollider(
       mesh,
       {
         hull: [
