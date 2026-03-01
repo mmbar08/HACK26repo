@@ -92,7 +92,7 @@ export class EnemyManager {
     this.pendingSpawnConfigs = [];
     this.spawnCountdown = 0;
     this.spawnIntervalSeconds = 0.12;
-    this.initialSpawnDelaySeconds = 0.55;
+    this.initialSpawnDelaySeconds = 0.1;
     this.enemySpawnBeacons = [];
 
     this.scheduleSpawnSequence(spawnConfigs);
@@ -151,27 +151,28 @@ export class EnemyManager {
       ui,
     });
 
-    this.spawnEnemySpawnBeacon(mesh.position);
+    this.spawnEnemySpawnBeacon(mesh.position, collisionSize.y);
   }
 
-  spawnEnemySpawnBeacon(position) {
-    const count = 34;
+  spawnEnemySpawnBeacon(position, hitboxHeight = 2.4) {
+    const count = 48;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
     const velocities = [];
+    const baseY = Math.max(0.06, position.y - hitboxHeight * 0.5 + 0.06);
 
     for (let i = 0; i < count; i += 1) {
       const idx = i * 3;
       positions[idx] = position.x;
-      positions[idx + 1] = Math.max(0.12, position.y * 0.05);
+      positions[idx + 1] = baseY + Math.random() * 0.08;
       positions[idx + 2] = position.z;
 
       const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.35;
-      const radialSpeed = 2.5 + Math.random() * 4;
+      const radialSpeed = 1 + Math.random() * 1.8;
       velocities.push(
         new THREE.Vector3(
           Math.cos(angle) * radialSpeed,
-          5.8 + Math.random() * 2.8,
+          9.4 + Math.random() * 4.4,
           Math.sin(angle) * radialSpeed
         )
       );
@@ -180,7 +181,7 @@ export class EnemyManager {
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const material = new THREE.PointsMaterial({
       color: 0xffffff,
-      size: 0.24,
+      size: 0.32,
       transparent: true,
       opacity: 1,
       depthWrite: false,
@@ -198,7 +199,7 @@ export class EnemyManager {
       positions,
       velocities,
       age: 0,
-      life: 0.38,
+      life: 0.46,
     });
   }
 
@@ -240,7 +241,7 @@ export class EnemyManager {
 
       attr.needsUpdate = true;
       beacon.material.opacity = decay;
-      beacon.material.size = 0.24 + decay * 0.2;
+      beacon.material.size = 0.26 + decay * 0.34;
     }
   }
 
@@ -411,7 +412,7 @@ export class EnemyManager {
   }
 
   spawnOilGoopDripTrail(enemy) {
-    const count = 4;
+    const count = 7;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
     const velocities = [];
@@ -421,22 +422,22 @@ export class EnemyManager {
     for (let i = 0; i < count; i += 1) {
       const idx = i * 3;
       const edge = Math.floor(Math.random() * 4);
-      const edgeOffset = (Math.random() - 0.5) * 0.9;
+      const edgeOffset = (Math.random() - 0.5) * 1.6;
       let localX = 0;
       let localZ = 0;
 
       if (edge === 0) {
-        localX = -0.58;
+        localX = -0.95;
         localZ = edgeOffset;
       } else if (edge === 1) {
-        localX = 0.58;
+        localX = 0.95;
         localZ = edgeOffset;
       } else if (edge === 2) {
         localX = edgeOffset;
-        localZ = -0.58;
+        localZ = -0.95;
       } else {
         localX = edgeOffset;
-        localZ = 0.58;
+        localZ = 0.95;
       }
 
       positions[idx] = enemy.mesh.position.x + localX;
@@ -445,9 +446,9 @@ export class EnemyManager {
 
       velocities.push(
         new THREE.Vector3(
-          (Math.random() - 0.5) * 0.065,
-          -(0.1 + Math.random() * 0.14),
-          (Math.random() - 0.5) * 0.065
+          (Math.random() - 0.5) * 0.14,
+          -(0.16 + Math.random() * 0.24),
+          (Math.random() - 0.5) * 0.14
         )
       );
     }
@@ -455,9 +456,9 @@ export class EnemyManager {
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const material = new THREE.PointsMaterial({
       color: 0x030304,
-      size: 0.135,
+      size: 0.2,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.98,
       depthWrite: false,
       blending: THREE.NormalBlending,
     });
@@ -471,7 +472,7 @@ export class EnemyManager {
       positions,
       velocities,
       age: 0,
-      life: 0.62,
+      life: 0.78,
     });
   }
 
@@ -523,7 +524,7 @@ export class EnemyManager {
       }
 
       enemy.goopTrailAccumulator += delta;
-      if (enemy.goopTrailAccumulator >= 0.04) {
+      if (enemy.goopTrailAccumulator >= 0.03) {
         this.spawnOilGoopDripTrail(enemy);
         enemy.goopTrailAccumulator = 0;
       }

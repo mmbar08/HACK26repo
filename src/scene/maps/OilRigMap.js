@@ -92,6 +92,8 @@ export class OilRigMap {
       hasFire: true,
       useBlueSky: false,
       useGlobalLights: false,
+      sunAlignedDirectionalLight: false,
+      enableShadows: false,
       globalLightBoost: 1,
       hasDrillShaft: true,
       fireCountMultiplier: 1,
@@ -105,6 +107,8 @@ export class OilRigMap {
       hasFire: true,
       useBlueSky: false,
       useGlobalLights: false,
+      sunAlignedDirectionalLight: false,
+      enableShadows: false,
       globalLightBoost: 1,
       hasDrillShaft: true,
       fireCountMultiplier: 1,
@@ -132,11 +136,22 @@ export class OilRigMap {
     this.scene.add(this.globalSkyLight);
 
     this.globalSunLight = new THREE.DirectionalLight(0xe4f3ff, this.globalSunLightBaseIntensity);
-    this.globalSunLight.position.set(36, 88, 28);
+    this.defaultGlobalSunLightPosition = new THREE.Vector3(36, 88, 28);
+    this.globalSunLight.position.copy(this.defaultGlobalSunLightPosition);
+    this.globalSunLight.castShadow = false;
+    this.globalSunLight.shadow.mapSize.set(1024, 1024);
+    this.globalSunLight.shadow.bias = -0.00012;
+    this.globalSunLight.shadow.camera.near = 10;
+    this.globalSunLight.shadow.camera.far = 220;
+    this.globalSunLight.shadow.camera.left = -90;
+    this.globalSunLight.shadow.camera.right = 90;
+    this.globalSunLight.shadow.camera.top = 90;
+    this.globalSunLight.shadow.camera.bottom = -90;
     this.globalSunLight.visible = false;
     this.scene.add(this.globalSunLight);
     this.skyClouds = [];
     this.skySunMesh = null;
+    this.skySunGlowMesh = null;
     this.createSkyDecor();
     this.loadedModelTemplates = [];
     this.generatedRoots = [];
@@ -380,8 +395,10 @@ export class OilRigMap {
     this.setFireEnabled(this.levelConfig.hasFire !== false);
     this.setGlobalLightingEnabled(
       this.levelConfig.useGlobalLights === true,
-      this.levelConfig.globalLightBoost ?? 1
+      this.levelConfig.globalLightBoost ?? 1,
+      this.levelConfig.sunAlignedDirectionalLight === true
     );
+    this.setShadowsEnabled(this.levelConfig.enableShadows === true);
     this.setSkyEnvironment(this.levelConfig.useBlueSky === true);
     this.setDrillShaftEnabled(this.levelConfig.hasDrillShaft !== false);
   }
@@ -456,6 +473,41 @@ export class OilRigMap {
     this.createFireEmitters();
     this.scatterProceduralProps(this.loadedModelTemplates);
     this.setFireEnabled(this.levelConfig.hasFire !== false);
+    this.setShadowsEnabled(this.levelConfig.enableShadows === true);
+  }
+
+  setShadowsEnabled(enabled) {
+    const castShadows = enabled === true;
+    this.globalSunLight.castShadow = castShadows;
+    this.globalSunLight.shadow.autoUpdate = castShadows;
+
+    if (this.rigFloor) {
+      this.rigFloor.receiveShadow = castShadows;
+      this.rigFloor.castShadow = false;
+    }
+
+    const staticShadowMeshes = [
+      this.drillShaftVisual,
+      this.rigTower,
+      ...this.interiorStructures,
+      ...this.ceilingLightFixtures,
+    ].filter(Boolean);
+
+    for (const mesh of staticShadowMeshes) {
+      mesh.castShadow = castShadows;
+      mesh.receiveShadow = castShadows;
+    }
+
+    for (const root of this.generatedRoots) {
+      root.traverse((child) => {
+        if (!child?.isMesh) {
+          return;
+        }
+
+        child.castShadow = castShadows;
+        child.receiveShadow = castShadows;
+      });
+    }
   }
 
   setLightGridEnabled(enabled) {
@@ -480,10 +532,15 @@ export class OilRigMap {
     }
   }
 
-  setGlobalLightingEnabled(enabled, boost = 1) {
+  setGlobalLightingEnabled(enabled, boost = 1, alignWithSun = false) {
     const intensityBoost = Math.max(0.1, boost);
     this.globalSkyLight.intensity = this.globalSkyLightBaseIntensity * intensityBoost;
     this.globalSunLight.intensity = this.globalSunLightBaseIntensity * intensityBoost;
+    if (alignWithSun && this.skySunMesh) {
+      this.globalSunLight.position.copy(this.skySunMesh.position);
+    } else {
+      this.globalSunLight.position.copy(this.defaultGlobalSunLightPosition);
+    }
     this.globalSkyLight.visible = enabled;
     this.globalSunLight.visible = enabled;
   }
@@ -560,13 +617,32 @@ export class OilRigMap {
 
   createSkyDecor() {
     const sunMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(6.2, 18, 18),
-      new THREE.MeshBasicMaterial({ color: 0xffe28a })
+      new THREE.SphereGeometry(7.4, 22, 22),
+      new THREE.MeshBasicMaterial({
+        color: 0xfff3b3,
+        toneMapped: false,
+      })
     );
     sunMesh.position.set(58, 78, -48);
     sunMesh.visible = false;
     this.scene.add(sunMesh);
     this.skySunMesh = sunMesh;
+
+    const sunGlowMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(11.6, 20, 20),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd766,
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+    );
+    sunGlowMesh.position.copy(sunMesh.position);
+    sunGlowMesh.visible = false;
+    this.scene.add(sunGlowMesh);
+    this.skySunGlowMesh = sunGlowMesh;
 
     const cloudMaterial = new THREE.MeshStandardMaterial({
       color: 0xf0f5ff,
@@ -613,6 +689,10 @@ export class OilRigMap {
   setSkyDecorVisible(visible) {
     if (this.skySunMesh) {
       this.skySunMesh.visible = visible;
+    }
+
+    if (this.skySunGlowMesh) {
+      this.skySunGlowMesh.visible = visible;
     }
 
     for (const cloud of this.skyClouds) {
@@ -822,6 +902,9 @@ export class OilRigMap {
         scale: Math.max(1.8, this.levelConfig.largeDrillFireScale ?? 2.6),
         particleScale: 1.45,
         yOffset: 1.9,
+        lightColor: 0xff2222,
+        flickerStrength: 0.45,
+        flickerSpeed: 9.5,
       });
     }
   }
@@ -834,7 +917,7 @@ export class OilRigMap {
     );
     const baseHeight = options.yOffset ?? 1.3;
     const light = new THREE.PointLight(
-      0xff7a33,
+      options.lightColor ?? 0xff7a33,
       150 * (0.9 + scale * 0.35),
       34 + (scale - 1) * 12,
       1.45
@@ -885,6 +968,8 @@ export class OilRigMap {
       baseHeight,
       baseIntensity: (130 + Math.random() * 32) * (0.9 + scale * 0.32),
       scale,
+      flickerStrength: Math.max(0, options.flickerStrength ?? 0.12),
+      flickerSpeed: Math.max(0.1, options.flickerSpeed ?? 5.2),
       flickerTime: Math.random() * 8,
     });
 
@@ -905,7 +990,11 @@ export class OilRigMap {
 
     for (let i = 0; i < this.fireEmitters.length; i += 1) {
       const emitter = this.fireEmitters[i];
-      emitter.light.intensity = emitter.baseIntensity;
+      emitter.flickerTime += delta * emitter.flickerSpeed;
+      const wave = 0.65 + Math.abs(Math.sin(emitter.flickerTime));
+      const noise = 0.82 + Math.random() * 0.28;
+      emitter.light.intensity =
+        emitter.baseIntensity * (1 - emitter.flickerStrength + wave * emitter.flickerStrength) * noise;
       emitter.light.position.y = emitter.baseHeight - 0.1;
 
       const particleSystem = this.fireParticleSystems[i];

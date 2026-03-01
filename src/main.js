@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OilRigMap } from './scene/maps/OilRigMap.js';
 import { InputManager } from './input/InputManager.js';
 import { PlayerController } from './player/PlayerController.js';
@@ -14,13 +17,15 @@ import { RepairInteraction } from './objective/RepairInteraction.js';
 const app = document.getElementById('app');
 const maxPlayerHealth = 100;
 const healthRegenPerSecond = 1;
-const shakeStrengthMultiplier = 1.6;
+const shakeStrengthMultiplier = 1.85;
 const dropStartHeight = 17;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x101a22, 1);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.domElement.tabIndex = 0;
 app.appendChild(renderer.domElement);
 
@@ -34,6 +39,34 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   500
 );
+
+const contrastShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    contrast: { value: 1.06 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float contrast;
+    varying vec2 vUv;
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      color.rgb = (color.rgb - 0.5) * contrast + 0.5;
+      gl_FragColor = color;
+    }
+  `,
+};
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new ShaderPass(contrastShader));
 
 const oilRigMap = new OilRigMap(scene);
 await oilRigMap.initialize();
@@ -54,6 +87,8 @@ const levelConfigs = [
       hasFire: false,
       useBlueSky: true,
       useGlobalLights: true,
+      sunAlignedDirectionalLight: true,
+      enableShadows: true,
       globalLightBoost: 1.35,
       hasDrillShaft: false,
     },
@@ -85,7 +120,7 @@ const levelConfigs = [
       globalLightBoost: 0.42,
       hasDrillShaft: true,
       fireCountMultiplier: 0.62,
-      fireNearDrillCount: 0,
+      fireNearDrillCount: 3,
       hasLargeDrillFire: true,
       largeDrillFireScale: 2.9,
     },
@@ -115,7 +150,8 @@ const rigFailure = new RigFailureSystem(120);
 const drillObjective = new DrillShaftObjective(oilRigMap.getDrillPosition(), 4.2);
 const repairInteraction = new RepairInteraction(4.5);
 const maxDrillDurability = 100;
-const respawnPosition = new THREE.Vector3(0, player.playerHeight - 0.85, 10);
+const respawnPosition = new THREE.Vector3(0, player.playerHeight - 1.2, 22);
+const playerSpawnYaw = 0;
 
 let playerHealth = maxPlayerHealth;
 let dropSequenceRemaining = 2;
@@ -125,9 +161,11 @@ let deathAnimationTime = 0;
 let deathAnimationStarted = false;
 const deathAnimationDuration = 1.1;
 const deathSimulationDuration = 2.5;
+const levelClearPopupDelaySeconds = 0.5;
 const levelClearDelaySeconds = 2;
 let deathSimulationRemaining = 0;
 let levelClearCountdown = 0;
+let levelClearPopupCountdown = 0;
 let pendingLevelAdvance = false;
 let cameraShakeStrength = 0;
 let cameraShakeTime = 0;
@@ -186,10 +224,11 @@ function switchToLevel(nextLevelIndex) {
   enemyManager.reset(spawnSet);
   levelStartEnemyCount = Math.max(1, spawnSet.length);
 
-  player.respawn(respawnPosition.x, respawnPosition.z, Math.PI, 0);
+  player.respawn(respawnPosition.x, respawnPosition.z, playerSpawnYaw, 0);
   dropSequenceRemaining = 1.4;
   pendingLevelAdvance = false;
   levelClearCountdown = 0;
+  levelClearPopupCountdown = 0;
   hud.hideLevelClearScreen();
   hud.setLevelStatus(currentLevelIndex + 1, levelConfigs.length);
   hud.setDrillMarkerVisible(currentLevelIndex >= levelConfigs.length - 1);
@@ -245,8 +284,9 @@ function respawnGame() {
   deathSimulationRemaining = 0;
   pendingLevelAdvance = false;
   levelClearCountdown = 0;
+  levelClearPopupCountdown = 0;
 
-  player.respawn(respawnPosition.x, respawnPosition.z, Math.PI, 0);
+  player.respawn(respawnPosition.x, respawnPosition.z, playerSpawnYaw, 0);
   dropSequenceRemaining = 2;
   hud.hideDeathScreen();
   hud.hideLevelClearScreen();
@@ -262,6 +302,7 @@ function beginLevelClearTransition() {
   }
 
   pendingLevelAdvance = true;
+  levelClearPopupCountdown = 0;
   levelClearCountdown = levelClearDelaySeconds;
   hud.showLevelClearScreen(`${getLevelLabel()} CLEARED`);
   hud.setRepairProgress(false, 0, 'Preparing deployment...');
@@ -478,9 +519,20 @@ function updateObjectiveFlow(delta) {
     hud.setRepairProgress(false, 0, 'Eliminate hostiles');
 
     if (enemiesCleared) {
-      beginLevelClearTransition();
+      if (levelClearPopupCountdown <= 0) {
+        levelClearPopupCountdown = levelClearPopupDelaySeconds;
+      }
+
+      levelClearPopupCountdown = Math.max(0, levelClearPopupCountdown - delta);
+      if (levelClearPopupCountdown <= 0) {
+        beginLevelClearTransition();
+      } else {
+        hud.setObjective(`${getLevelLabel()} secured. Confirming clear...`);
+      }
       return;
     }
+
+    levelClearPopupCountdown = 0;
 
     hud.setObjective(`${getLevelLabel()} - Eliminate all Oil zombies`);
     return;
@@ -605,7 +657,7 @@ function animate() {
   }
   hud.setRigFailure(rigFailure.remainingSeconds, rigFailure.getRatio());
 
-  renderer.render(scene, camera);
+  composer.render();
   requestAnimationFrame(animate);
 }
 
@@ -614,6 +666,8 @@ function onWindowResize() {
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  composer.setSize(window.innerWidth, window.innerHeight);
 }
 
 window.addEventListener('resize', onWindowResize);
