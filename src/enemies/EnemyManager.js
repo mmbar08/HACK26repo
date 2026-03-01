@@ -422,22 +422,22 @@ export class EnemyManager {
     for (let i = 0; i < count; i += 1) {
       const idx = i * 3;
       const edge = Math.floor(Math.random() * 4);
-      const edgeOffset = (Math.random() - 0.5) * 1.6;
+      const edgeOffset = (Math.random() - 0.5) * 1.35;
       let localX = 0;
       let localZ = 0;
 
       if (edge === 0) {
-        localX = -0.95;
+        localX = -0.82;
         localZ = edgeOffset;
       } else if (edge === 1) {
-        localX = 0.95;
+        localX = 0.82;
         localZ = edgeOffset;
       } else if (edge === 2) {
         localX = edgeOffset;
-        localZ = -0.95;
+        localZ = -0.82;
       } else {
         localX = edgeOffset;
-        localZ = 0.95;
+        localZ = 0.82;
       }
 
       positions[idx] = enemy.mesh.position.x + localX;

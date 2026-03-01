@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { OilRigMap } from './scene/maps/OilRigMap.js';
 import { InputManager } from './input/InputManager.js';
 import { PlayerController } from './player/PlayerController.js';
@@ -24,8 +24,8 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x101a22, 1);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = false;
 renderer.domElement.tabIndex = 0;
 app.appendChild(renderer.domElement);
 
@@ -40,33 +40,9 @@ const camera = new THREE.PerspectiveCamera(
   500
 );
 
-const contrastShader = {
-  uniforms: {
-    tDiffuse: { value: null },
-    contrast: { value: 1.06 },
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: `
-    uniform sampler2D tDiffuse;
-    uniform float contrast;
-    varying vec2 vUv;
-    void main() {
-      vec4 color = texture2D(tDiffuse, vUv);
-      color.rgb = (color.rgb - 0.5) * contrast + 0.5;
-      gl_FragColor = color;
-    }
-  `,
-};
-
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new ShaderPass(contrastShader));
+composer.addPass(new OutputPass());
 
 const oilRigMap = new OilRigMap(scene);
 await oilRigMap.initialize();
@@ -88,7 +64,6 @@ const levelConfigs = [
       useBlueSky: true,
       useGlobalLights: true,
       sunAlignedDirectionalLight: true,
-      enableShadows: true,
       globalLightBoost: 1.35,
       hasDrillShaft: false,
     },
