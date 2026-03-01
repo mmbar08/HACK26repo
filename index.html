@@ -1,30 +1,31 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sustainability FPS</title>
-    <style>
-      html,
-      body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-      }
+<head>
+    <meta charset="UTF-8">
+    <title>Oil Rig Rescue</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
-      #app {
-        width: 100%;
-        height: 100%;
-      }
+    <div class="overlay">
+        <h1 class="title">OIL RIG RESCUE</h1>
+        
+        <p class="mission">
+            You’ve been deployed to a collapsing offshore oil rig.
+            Oil mutations have taken over the platform.
+            Fight your way through the infected,
+            reach the control room,
+            and stabilize the rig before a catastrophic spill destroys the ocean ecosystem.
+        </p>
 
-      canvas {
-        display: block;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+        <button id="startButton">START MISSION</button>
+    </div>
+
+    <script>
+        document.getElementById("startButton").addEventListener("click", function() {
+            window.location.href = "game.html";
+        });
+    </script>
+
+</body>
 </html>
