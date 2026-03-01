@@ -71,12 +71,23 @@ export class OilZombieSpawner {
       return true;
     }
 
-    return this.worldMap.isBlockedByZone(
+    const blockedByRampZone = this.worldMap.isBlockedByZone(
       x,
       z,
       this.worldMap.rampForbiddenZones ?? [],
       radius
     );
+
+    if (blockedByRampZone) {
+      return true;
+    }
+
+    if (typeof this.worldMap.isSpawnPositionBlocked === 'function') {
+      const spawnCollisionSize = { x: radius * 2.1, y: 2.6, z: radius * 2.1 };
+      return this.worldMap.isSpawnPositionBlocked(x, z, spawnCollisionSize);
+    }
+
+    return false;
   }
 
   spawn(count = 10, options = {}) {
@@ -88,14 +99,24 @@ export class OilZombieSpawner {
 
     const levelSize = this.worldMap?.levelSize ?? 130;
     const halfLevel = levelSize * 0.5 - margin;
+    const minDistanceFromCenter = options.minDistanceFromCenter ?? 6;
+    const maxDistanceFromCenter = Math.min(
+      halfLevel,
+      options.maxDistanceFromCenter ?? halfLevel * 0.62
+    );
     const maxAttempts = spawnCount * 90;
     const spawnConfigs = [];
 
     let attempts = 0;
     while (spawnConfigs.length < spawnCount && attempts < maxAttempts) {
       attempts += 1;
-      const x = (Math.random() * 2 - 1) * halfLevel;
-      const z = (Math.random() * 2 - 1) * halfLevel;
+      const angle = Math.random() * Math.PI * 2;
+      const radiusFactor = Math.pow(Math.random(), 0.78);
+      const radius =
+        minDistanceFromCenter +
+        (maxDistanceFromCenter - minDistanceFromCenter) * radiusFactor;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
 
       const playerDistance = Math.hypot(x - playerPosition.x, z - playerPosition.z);
       if (playerDistance < minDistanceFromPlayer) {
@@ -121,7 +142,10 @@ export class OilZombieSpawner {
     }
 
     if (spawnConfigs.length < spawnCount) {
-      const fallbackRadius = Math.max(minDistanceFromPlayer + 6, halfLevel * 0.55);
+      const fallbackRadius = Math.min(
+        maxDistanceFromCenter * 0.85,
+        Math.max(minDistanceFromPlayer + 4, minDistanceFromCenter + 5)
+      );
       for (let i = spawnConfigs.length; i < spawnCount; i += 1) {
         const angle = (Math.PI * 2 * i) / spawnCount;
         const x = Math.cos(angle) * fallbackRadius;

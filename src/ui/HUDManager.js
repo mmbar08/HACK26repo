@@ -49,6 +49,38 @@ export class HUDManager {
     this.levelUi.textContent = 'Level: 1/1';
     document.body.appendChild(this.levelUi);
 
+    this.levelProgressUi = document.createElement('div');
+    this.levelProgressUi.style.position = 'fixed';
+    this.levelProgressUi.style.left = '50%';
+    this.levelProgressUi.style.top = '12px';
+    this.levelProgressUi.style.transform = 'translateX(-50%)';
+    this.levelProgressUi.style.padding = '7px 10px';
+    this.levelProgressUi.style.background = 'rgba(0, 0, 0, 0.45)';
+    this.levelProgressUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    this.levelProgressUi.style.color = '#e6f4f1';
+    this.levelProgressUi.style.fontFamily = 'system-ui, sans-serif';
+    this.levelProgressUi.style.fontSize = '12px';
+
+    this.levelProgressLabel = document.createElement('div');
+    this.levelProgressLabel.style.marginBottom = '5px';
+    this.levelProgressLabel.style.textAlign = 'center';
+    this.levelProgressLabel.textContent = 'Enemies Killed: 0/0';
+
+    const levelProgressTrack = document.createElement('div');
+    levelProgressTrack.style.width = '260px';
+    levelProgressTrack.style.height = '8px';
+    levelProgressTrack.style.background = 'rgba(255, 255, 255, 0.2)';
+
+    this.levelProgressFill = document.createElement('div');
+    this.levelProgressFill.style.height = '100%';
+    this.levelProgressFill.style.width = '0%';
+    this.levelProgressFill.style.background = 'linear-gradient(90deg, #30b5ff 0%, #59f4ff 100%)';
+
+    levelProgressTrack.appendChild(this.levelProgressFill);
+    this.levelProgressUi.appendChild(this.levelProgressLabel);
+    this.levelProgressUi.appendChild(levelProgressTrack);
+    document.body.appendChild(this.levelProgressUi);
+
     this.rigRiskUi = document.createElement('div');
     this.rigRiskUi.style.position = 'fixed';
     this.rigRiskUi.style.left = '12px';
@@ -62,7 +94,7 @@ export class HUDManager {
 
     this.rigRiskLabel = document.createElement('div');
     this.rigRiskLabel.style.marginBottom = '6px';
-    this.rigRiskLabel.textContent = 'Rig Stability: 100% | 00:00';
+    this.rigRiskLabel.textContent = 'Drill Durability: 100% | 00:00';
 
     const rigRiskTrack = document.createElement('div');
     rigRiskTrack.style.width = '210px';
@@ -81,39 +113,6 @@ export class HUDManager {
     this.rigRiskUi.appendChild(rigRiskTrack);
     document.body.appendChild(this.rigRiskUi);
 
-    this.drillHealthUi = document.createElement('div');
-    this.drillHealthUi.style.position = 'fixed';
-    this.drillHealthUi.style.left = '50%';
-    this.drillHealthUi.style.top = '50%';
-    this.drillHealthUi.style.transform = 'translate(-50%, -130%)';
-    this.drillHealthUi.style.padding = '8px 10px';
-    this.drillHealthUi.style.background = 'rgba(0, 0, 0, 0.45)';
-    this.drillHealthUi.style.border = '1px solid rgba(255, 255, 255, 0.2)';
-    this.drillHealthUi.style.color = '#e6f4f1';
-    this.drillHealthUi.style.fontFamily = 'system-ui, sans-serif';
-    this.drillHealthUi.style.fontSize = '12px';
-
-    this.drillHealthLabel = document.createElement('div');
-    this.drillHealthLabel.style.marginBottom = '6px';
-    this.drillHealthLabel.textContent = 'Drill Durability: 100%';
-
-    const drillHealthTrack = document.createElement('div');
-    drillHealthTrack.style.width = '210px';
-    drillHealthTrack.style.height = '10px';
-    drillHealthTrack.style.background = 'rgba(255, 255, 255, 0.2)';
-    drillHealthTrack.style.border = '1px solid rgba(255, 255, 255, 0.2)';
-
-    this.drillHealthFill = document.createElement('div');
-    this.drillHealthFill.style.height = '100%';
-    this.drillHealthFill.style.width = '100%';
-    this.drillHealthFill.style.background =
-      'linear-gradient(90deg, #d53f3f 0%, #f4d03f 55%, #25c46b 100%)';
-
-    drillHealthTrack.appendChild(this.drillHealthFill);
-    this.drillHealthUi.appendChild(this.drillHealthLabel);
-    this.drillHealthUi.appendChild(drillHealthTrack);
-    document.body.appendChild(this.drillHealthUi);
-
     this.repairUi = document.createElement('div');
     this.repairUi.style.position = 'fixed';
     this.repairUi.style.left = '50%';
@@ -129,7 +128,7 @@ export class HUDManager {
 
     this.repairLabel = document.createElement('div');
     this.repairLabel.style.marginBottom = '6px';
-    this.repairLabel.textContent = 'Hold E to repair drill shaft';
+    this.repairLabel.textContent = 'Hold R to repair drill shaft';
 
     const repairTrack = document.createElement('div');
     repairTrack.style.width = '220px';
@@ -258,6 +257,7 @@ export class HUDManager {
     this.drillMarker.style.fontFamily = 'system-ui, sans-serif';
     this.drillMarker.style.fontSize = '12px';
     this.drillMarker.style.pointerEvents = 'none';
+    this.drillMarker.style.display = 'none';
     this.drillMarker.textContent = 'DRILL SHAFT';
     document.body.appendChild(this.drillMarker);
 
@@ -341,6 +341,32 @@ export class HUDManager {
     this.deathPanel.appendChild(this.respawnButton);
     this.deathOverlay.appendChild(this.deathPanel);
     document.body.appendChild(this.deathOverlay);
+
+    this.levelClearOverlay = document.createElement('div');
+    this.levelClearOverlay.style.position = 'fixed';
+    this.levelClearOverlay.style.inset = '0';
+    this.levelClearOverlay.style.display = 'none';
+    this.levelClearOverlay.style.pointerEvents = 'none';
+    this.levelClearOverlay.style.background = 'rgba(4, 10, 16, 0.42)';
+    this.levelClearOverlay.style.zIndex = '15';
+
+    this.levelClearText = document.createElement('div');
+    this.levelClearText.style.position = 'fixed';
+    this.levelClearText.style.left = '50%';
+    this.levelClearText.style.top = '50%';
+    this.levelClearText.style.transform = 'translate(-50%, -50%)';
+    this.levelClearText.style.padding = '14px 18px';
+    this.levelClearText.style.border = '1px solid rgba(163, 223, 255, 0.55)';
+    this.levelClearText.style.background = 'rgba(6, 18, 26, 0.86)';
+    this.levelClearText.style.color = '#e5f5ff';
+    this.levelClearText.style.fontFamily = 'system-ui, sans-serif';
+    this.levelClearText.style.fontSize = '34px';
+    this.levelClearText.style.fontWeight = '700';
+    this.levelClearText.style.letterSpacing = '0.04em';
+    this.levelClearText.textContent = 'LEVEL CLEARED';
+
+    this.levelClearOverlay.appendChild(this.levelClearText);
+    document.body.appendChild(this.levelClearOverlay);
   }
 
   onStartClick(handler) {
@@ -374,45 +400,18 @@ export class HUDManager {
     this.levelUi.textContent = `Level: ${currentLevel}/${totalLevels}`;
   }
 
+  setLevelProgress(ratio, text = null) {
+    const clamped = THREE.MathUtils.clamp(ratio, 0, 1);
+    this.levelProgressFill.style.width = `${Math.round(clamped * 100)}%`;
+    this.levelProgressLabel.textContent = text ?? `Enemies Killed: ${Math.round(clamped * 100)}%`;
+  }
+
   setRigFailure(remainingSeconds, ratio) {
     const minutes = Math.floor(remainingSeconds / 60);
     const seconds = Math.floor(remainingSeconds % 60);
     const stabilityPercent = Math.round(Math.max(0, ratio) * 100);
-    this.rigRiskLabel.textContent = `Rig Stability: ${stabilityPercent}% | ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    this.rigRiskLabel.textContent = `Drill Durability: ${stabilityPercent}% | ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     this.rigRiskFill.style.width = `${stabilityPercent}%`;
-  }
-
-  setDrillDurability(current, max) {
-    const ratio = max > 0 ? current / max : 0;
-    const durabilityPercent = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
-    this.drillHealthLabel.textContent = `Drill Durability: ${durabilityPercent}%`;
-    this.drillHealthFill.style.width = `${durabilityPercent}%`;
-  }
-
-  updateDrillDurabilityAnchor(drillPosition, camera) {
-    this.clipSpaceVector.copy(drillPosition);
-    this.clipSpaceVector.y += 3.6;
-    this.clipSpaceVector.project(camera);
-
-    const onScreen =
-      this.clipSpaceVector.z >= -1 &&
-      this.clipSpaceVector.z <= 1 &&
-      this.clipSpaceVector.x >= -1.2 &&
-      this.clipSpaceVector.x <= 1.2 &&
-      this.clipSpaceVector.y >= -1.2 &&
-      this.clipSpaceVector.y <= 1.2;
-
-    if (!onScreen) {
-      this.drillHealthUi.style.display = 'none';
-      return;
-    }
-
-    const x = (this.clipSpaceVector.x * 0.5 + 0.5) * window.innerWidth;
-    const y = (-this.clipSpaceVector.y * 0.5 + 0.5) * window.innerHeight;
-
-    this.drillHealthUi.style.display = 'block';
-    this.drillHealthUi.style.left = `${THREE.MathUtils.clamp(x, 120, window.innerWidth - 120)}px`;
-    this.drillHealthUi.style.top = `${THREE.MathUtils.clamp(y, 60, window.innerHeight - 40)}px`;
   }
 
   setRepairProgress(visible, ratio, text) {
@@ -481,6 +480,10 @@ export class HUDManager {
     }
   }
 
+  setDrillMarkerVisible(visible) {
+    this.drillMarker.style.display = visible ? 'block' : 'none';
+  }
+
   showMessage(text) {
     this.message.style.display = 'block';
     this.message.textContent = text;
@@ -500,5 +503,14 @@ export class HUDManager {
   setDeathDim(amount) {
     const alpha = THREE.MathUtils.clamp(amount, 0, 0.85);
     this.deathOverlay.style.background = `rgba(5, 8, 12, ${alpha})`;
+  }
+
+  showLevelClearScreen(text = 'LEVEL CLEARED') {
+    this.levelClearText.textContent = text;
+    this.levelClearOverlay.style.display = 'block';
+  }
+
+  hideLevelClearScreen() {
+    this.levelClearOverlay.style.display = 'none';
   }
 }

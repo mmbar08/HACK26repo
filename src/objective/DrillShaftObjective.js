@@ -11,7 +11,9 @@ export class DrillShaftObjective {
       return;
     }
 
-    this.reached = playerPosition.distanceTo(this.drillPosition) <= this.interactionRadius;
+    const dx = playerPosition.x - this.drillPosition.x;
+    const dz = playerPosition.z - this.drillPosition.z;
+    this.reached = dx * dx + dz * dz <= this.interactionRadius * this.interactionRadius;
   }
 
   complete() {

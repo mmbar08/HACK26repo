@@ -5,7 +5,7 @@ export const inputConfig = {
     back: 'KeyS',
     left: 'KeyA',
     right: 'KeyD',
-    interact: 'KeyE',
+    interact: 'KeyR',
     sprint: 'ShiftLeft',
     jump: 'Space',
     shoot: 0,

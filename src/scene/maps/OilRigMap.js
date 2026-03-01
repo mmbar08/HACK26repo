@@ -8,7 +8,7 @@ export class OilRigMap {
     this.hullColliderEntries = [];
     this.playerCollisionBox = new THREE.Box3();
     this.hitboxHelpers = [];
-    this.hitboxDebugVisible = true;
+    this.hitboxDebugVisible = false;
     this.platformSurfaces = [];
     this.rampSurfaces = [];
     this.elevatedPlatformZones = [];
@@ -58,16 +58,17 @@ export class OilRigMap {
     this.tempColliderMatrix = new THREE.Matrix4();
     this.tempInverseMatrix = new THREE.Matrix4();
     this.tempSphereCenter = new THREE.Vector3();
+    this.spawnProbePosition = new THREE.Vector3();
     this.modelLoader = new ModelLoader();
     this.textureLoader = new TextureAssetLoader();
 
     this.levelSize = 130;
     this.spawnProtectionRadius = 18;
     this.drillProtectionRadius = 16;
-    this.centerPropExclusionRadius = 26;
+    this.centerPropExclusionRadius = 8;
     this.floorTextureRepeatScale = 8;
-    this.elevatedPlatformCountMin = 4;
-    this.elevatedPlatformCountMax = 7;
+    this.elevatedPlatformCountMin = 3;
+    this.elevatedPlatformCountMax = 5;
     this.rampedPlatformChance = 0.55;
     this.rampSpawnChancePerSide = 0.35;
     this.globalModelScale = 0.07;
@@ -76,7 +77,7 @@ export class OilRigMap {
     this.spawnedModelMaxLongestSide = 6.5;
     this.platformPbrSet = null;
     this.nonRubberPbrSets = [];
-    this.showPropDebugColliders = true;
+    this.showPropDebugColliders = false;
     this.roomHeight = 21.5;
     this.wallThickness = 1.4;
     this.ceilingLights = [];
@@ -94,6 +95,9 @@ export class OilRigMap {
       globalLightBoost: 1,
       hasDrillShaft: true,
       fireCountMultiplier: 1,
+      fireNearDrillCount: 0,
+      hasLargeDrillFire: false,
+      largeDrillFireScale: 2.6,
     };
     this.defaultLevelConfig = {
       hasWallsRoof: true,
@@ -104,6 +108,9 @@ export class OilRigMap {
       globalLightBoost: 1,
       hasDrillShaft: true,
       fireCountMultiplier: 1,
+      fireNearDrillCount: 0,
+      hasLargeDrillFire: false,
+      largeDrillFireScale: 2.6,
     };
     this.defaultBackgroundColor = this.scene.background?.isColor
       ? this.scene.background.clone()
@@ -128,6 +135,9 @@ export class OilRigMap {
     this.globalSunLight.position.set(36, 88, 28);
     this.globalSunLight.visible = false;
     this.scene.add(this.globalSunLight);
+    this.skyClouds = [];
+    this.skySunMesh = null;
+    this.createSkyDecor();
     this.loadedModelTemplates = [];
     this.generatedRoots = [];
     this.generatedColliderEntries = [];
@@ -136,7 +146,7 @@ export class OilRigMap {
     this.invisibleBlockerHelpers = [];
     this.fireEmitters = [];
     this.fireParticleSystems = [];
-    this.fireParticleCount = 22;
+    this.fireParticleCount = 14;
     this.modelConfigs = [
       {
         url: '/assets/models/barrel.glb',
@@ -212,17 +222,34 @@ export class OilRigMap {
 
     this.createInteriorStructure();
 
-    this.drillShaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(2.4, 2.4, 12, 24),
+    this.drillShaftHeight = 16;
+    this.drillShaft = new THREE.Group();
+    this.drillShaft.position.set(0, this.drillShaftHeight * 0.5, -44);
+
+    this.drillShaftVisual = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.4, 2.4, this.drillShaftHeight, 24),
       new THREE.MeshStandardMaterial({
         color: 0x3a4a53,
         roughness: 0.55,
         metalness: 0.65,
       })
     );
-    this.drillShaft.position.set(0, 6, -44);
+    this.drillRotationSpeed = 0.35;
+    this.drillSwayTime = 0;
+    this.drillSwayAmplitudeX = 0.024;
+    this.drillSwayAmplitudeZ = 0.019;
+
+    this.drillLight = new THREE.PointLight(0xff1f1f, 88, 44, 1.85);
+    this.drillLight.position.set(0, 3.2, 0);
+    this.drillShaftVisual.add(this.drillLight);
+
+    this.drillOrbitParticleData = [];
+    this.drillOrbitParticlePositions = null;
+    this.drillOrbitParticleSystem = null;
+    this.drillShaft.add(this.drillShaftVisual);
+    this.createDrillBaseOrbitParticles();
     this.scene.add(this.drillShaft);
-    this.raycastObjects.push(this.drillShaft);
+    this.raycastObjects.push(this.drillShaftVisual);
 
     this.rigTower = new THREE.Mesh(
       new THREE.BoxGeometry(14, 10, 14),
@@ -233,12 +260,16 @@ export class OilRigMap {
       })
     );
     this.rigTower.position.set(0, 5, -58);
-    this.scene.add(this.rigTower);
-    this.raycastObjects.push(this.rigTower);
+    this.rigTower.visible = false;
 
     this.addPlatformSurface(this.rigFloor, this.levelSize, this.levelSize, 0);
-    this.drillShaftCollider = this.addStaticCollider(this.drillShaft, 5.2, 12, 5.2, true);
-    this.addStaticCollider(this.rigTower, 14, 10, 14, true);
+    this.drillShaftCollider = this.addStaticCollider(
+      this.drillShaft,
+      5.2,
+      this.drillShaftHeight,
+      5.2,
+      false
+    );
   }
 
   async initialize() {
@@ -393,6 +424,16 @@ export class OilRigMap {
     }
 
     for (const colliderEntry of this.generatedColliderEntries) {
+      if (colliderEntry?.helper) {
+        colliderEntry.object3d?.remove?.(colliderEntry.helper);
+        colliderEntry.helper.geometry?.dispose?.();
+        colliderEntry.helper.material?.dispose?.();
+        const helperIndex = this.hitboxHelpers.indexOf(colliderEntry.helper);
+        if (helperIndex >= 0) {
+          this.hitboxHelpers.splice(helperIndex, 1);
+        }
+      }
+
       const index = this.hullColliderEntries.indexOf(colliderEntry);
       if (index >= 0) {
         this.hullColliderEntries.splice(index, 1);
@@ -451,9 +492,9 @@ export class OilRigMap {
     this.drillShaft.visible = enabled;
 
     if (enabled) {
-      this.addRaycastObject(this.drillShaft);
+      this.addRaycastObject(this.drillShaftVisual);
     } else {
-      this.removeRaycastObject(this.drillShaft);
+      this.removeRaycastObject(this.drillShaftVisual);
     }
 
     if (this.drillShaftCollider) {
@@ -461,10 +502,50 @@ export class OilRigMap {
     }
   }
 
+  createDrillBaseOrbitParticles() {
+    const particleCount = 38;
+    const positions = new Float32Array(particleCount * 3);
+    const particleData = [];
+    const baseY = -this.drillShaftHeight * 0.5 + 0.22;
+
+    for (let i = 0; i < particleCount; i += 1) {
+      const radius = 2.7 + Math.random() * 1.4;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.8 + Math.random() * 0.7;
+      const height = baseY + Math.random() * 0.7;
+      particleData.push({ radius, angle, speed, height });
+
+      const idx = i * 3;
+      positions[idx] = Math.cos(angle) * radius;
+      positions[idx + 1] = height;
+      positions[idx + 2] = Math.sin(angle) * radius;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: 0xff5a44,
+      size: 0.16,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    });
+
+    const points = new THREE.Points(geometry, material);
+    this.drillShaftVisual.add(points);
+
+    this.drillOrbitParticleData = particleData;
+    this.drillOrbitParticlePositions = positions;
+    this.drillOrbitParticleSystem = points;
+  }
+
   setSkyEnvironment(useBlueSky) {
     if (useBlueSky) {
       this.scene.background = new THREE.Color(0x78bfff);
       this.scene.fog = new THREE.Fog(0x8ac7ff, 62, 250);
+      this.setSkyDecorVisible(true);
       return;
     }
 
@@ -474,6 +555,73 @@ export class OilRigMap {
       this.defaultFogNear,
       this.defaultFogFar
     );
+    this.setSkyDecorVisible(false);
+  }
+
+  createSkyDecor() {
+    const sunMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(6.2, 18, 18),
+      new THREE.MeshBasicMaterial({ color: 0xffe28a })
+    );
+    sunMesh.position.set(58, 78, -48);
+    sunMesh.visible = false;
+    this.scene.add(sunMesh);
+    this.skySunMesh = sunMesh;
+
+    const cloudMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf0f5ff,
+      roughness: 0.95,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+    });
+
+    const cloudAnchors = [
+      new THREE.Vector3(-192, 52, -136),
+      new THREE.Vector3(-72, 56, -248),
+      new THREE.Vector3(88, 50, -152),
+      new THREE.Vector3(184, 54, -40),
+      new THREE.Vector3(-8, 58, 24),
+    ];
+
+    for (const anchor of cloudAnchors) {
+      const cloud = new THREE.Group();
+      for (let i = 0; i < 14; i += 1) {
+        const blockW = 24 + Math.random() * 20;
+        const blockH = 4.5 + Math.random() * 3.2;
+        const blockD = 22 + Math.random() * 18;
+        const puff = new THREE.Mesh(
+          new THREE.BoxGeometry(blockW, blockH, blockD),
+          cloudMaterial.clone()
+        );
+        puff.position.set(
+          (Math.random() - 0.5) * 200,
+          (Math.random() - 0.5) * 7,
+          (Math.random() - 0.5) * 136
+        );
+        cloud.add(puff);
+      }
+
+      cloud.position.copy(anchor);
+      cloud.visible = false;
+      this.scene.add(cloud);
+      this.skyClouds.push(cloud);
+    }
+  }
+
+  setSkyDecorVisible(visible) {
+    if (this.skySunMesh) {
+      this.skySunMesh.visible = visible;
+    }
+
+    for (const cloud of this.skyClouds) {
+      cloud.visible = visible;
+    }
+  }
+
+  isDrillShaftEnabled() {
+    return this.drillShaft.visible;
   }
 
   setInteriorEnabled(enabled) {
@@ -621,8 +769,15 @@ export class OilRigMap {
       return;
     }
 
+    const maxTotalEmitters = 8;
     const fireCountMultiplier = Math.max(0, this.levelConfig.fireCountMultiplier ?? 1);
-    const emittersTarget = Math.max(0, Math.round(THREE.MathUtils.randInt(4, 6) * fireCountMultiplier));
+    const requestedNearDrillCount = Math.max(0, this.levelConfig.fireNearDrillCount ?? 0);
+    const nearDrillCount = Math.min(requestedNearDrillCount, maxTotalEmitters);
+    const baseEmittersBudget = Math.max(0, maxTotalEmitters - nearDrillCount);
+    const emittersTarget = Math.min(
+      baseEmittersBudget,
+      Math.max(0, Math.round(THREE.MathUtils.randInt(4, 6) * fireCountMultiplier))
+    );
     const halfLevel = this.levelSize * 0.5 - 8;
     let attempts = 0;
 
@@ -650,58 +805,97 @@ export class OilRigMap {
         continue;
       }
 
-      const light = new THREE.PointLight(0xff7a33, 150, 34, 1.45);
-      light.position.set(x, 1.3, z);
-      this.scene.add(light);
+      this.spawnSingleFireEmitter(x, z);
+    }
 
-      const particleGeometry = new THREE.BufferGeometry();
-      const positions = new Float32Array(this.fireParticleCount * 3);
-      const velocities = [];
-      const lifetimes = new Float32Array(this.fireParticleCount);
+    const nearDrillRadius = 9.5;
+    for (let i = 0; i < nearDrillCount && this.fireEmitters.length < maxTotalEmitters; i += 1) {
+      const angle = (Math.PI * 2 * i) / Math.max(1, nearDrillCount);
+      const jitter = (Math.random() - 0.5) * 1.5;
+      const x = this.drillShaft.position.x + Math.cos(angle) * (nearDrillRadius + jitter);
+      const z = this.drillShaft.position.z + Math.sin(angle) * (nearDrillRadius + jitter);
+      this.spawnSingleFireEmitter(x, z);
+    }
 
-      for (let i = 0; i < this.fireParticleCount; i += 1) {
-        const idx = i * 3;
-        positions[idx] = x;
-        positions[idx + 1] = 0.1 + Math.random() * 0.4;
-        positions[idx + 2] = z;
-        velocities.push(
-          new THREE.Vector3(
-            (Math.random() - 0.5) * 0.8,
-            2.1 + Math.random() * 2.6,
-            (Math.random() - 0.5) * 0.8
-          )
-        );
-        lifetimes[i] = Math.random() * 0.8 + 0.2;
-      }
-
-      particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      const particleMaterial = new THREE.PointsMaterial({
-        color: 0xff8a2d,
-        size: 0.42,
-        transparent: true,
-        opacity: 0.62,
-        depthWrite: false,
-        blending: THREE.NormalBlending,
-      });
-
-      const points = new THREE.Points(particleGeometry, particleMaterial);
-      this.scene.add(points);
-
-      this.fireEmitters.push({
-        position: new THREE.Vector3(x, 0, z),
-        light,
-        baseIntensity: 130 + Math.random() * 32,
-        flickerTime: Math.random() * 8,
-      });
-
-      this.fireParticleSystems.push({
-        points,
-        geometry: particleGeometry,
-        positions,
-        velocities,
-        lifetimes,
+    if (this.levelConfig.hasLargeDrillFire === true) {
+      this.spawnSingleFireEmitter(this.drillShaft.position.x, this.drillShaft.position.z, {
+        scale: Math.max(1.8, this.levelConfig.largeDrillFireScale ?? 2.6),
+        particleScale: 1.45,
+        yOffset: 1.9,
       });
     }
+  }
+
+  spawnSingleFireEmitter(x, z, options = {}) {
+    const scale = Math.max(0.65, options.scale ?? 1);
+    const particleCount = Math.max(
+      8,
+      Math.round((options.particleCount ?? this.fireParticleCount) * (options.particleScale ?? 1))
+    );
+    const baseHeight = options.yOffset ?? 1.3;
+    const light = new THREE.PointLight(
+      0xff7a33,
+      150 * (0.9 + scale * 0.35),
+      34 + (scale - 1) * 12,
+      1.45
+    );
+    light.position.set(x, baseHeight, z);
+    this.scene.add(light);
+
+    const particleGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const velocities = [];
+    const lifetimes = new Float32Array(particleCount);
+
+    const lateralSpread = 0.8 * (0.95 + scale * 0.2);
+    const verticalSpeedMin = 2.1 * (0.95 + scale * 0.3);
+    const verticalSpeedRange = 2.6 * (0.95 + scale * 0.35);
+
+    for (let i = 0; i < particleCount; i += 1) {
+      const idx = i * 3;
+      positions[idx] = x;
+      positions[idx + 1] = 0.1 + Math.random() * 0.4;
+      positions[idx + 2] = z;
+      velocities.push(
+        new THREE.Vector3(
+          (Math.random() - 0.5) * lateralSpread,
+          verticalSpeedMin + Math.random() * verticalSpeedRange,
+          (Math.random() - 0.5) * lateralSpread
+        )
+      );
+      lifetimes[i] = Math.random() * 0.8 + 0.2;
+    }
+
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const particleMaterial = new THREE.PointsMaterial({
+      color: 0xff8a2d,
+      size: 0.42 * (0.9 + scale * 0.32),
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+    });
+
+    const points = new THREE.Points(particleGeometry, particleMaterial);
+    this.scene.add(points);
+
+    this.fireEmitters.push({
+      position: new THREE.Vector3(x, 0, z),
+      light,
+      baseHeight,
+      baseIntensity: (130 + Math.random() * 32) * (0.9 + scale * 0.32),
+      scale,
+      flickerTime: Math.random() * 8,
+    });
+
+    this.fireParticleSystems.push({
+      points,
+      geometry: particleGeometry,
+      positions,
+      velocities,
+      lifetimes,
+      particleCount,
+    });
   }
 
   updateFireEmitters(delta) {
@@ -712,26 +906,27 @@ export class OilRigMap {
     for (let i = 0; i < this.fireEmitters.length; i += 1) {
       const emitter = this.fireEmitters[i];
       emitter.light.intensity = emitter.baseIntensity;
-      emitter.light.position.y = 1.2;
+      emitter.light.position.y = emitter.baseHeight - 0.1;
 
       const particleSystem = this.fireParticleSystems[i];
       if (!particleSystem) {
         continue;
       }
 
-      const { positions, velocities, lifetimes, geometry } = particleSystem;
-      for (let particleIndex = 0; particleIndex < this.fireParticleCount; particleIndex += 1) {
+      const { positions, velocities, lifetimes, geometry, particleCount } = particleSystem;
+      for (let particleIndex = 0; particleIndex < particleCount; particleIndex += 1) {
         lifetimes[particleIndex] -= delta;
         const baseIndex = particleIndex * 3;
 
         if (lifetimes[particleIndex] <= 0) {
-          positions[baseIndex] = emitter.position.x + (Math.random() - 0.5) * 0.45;
-          positions[baseIndex + 1] = 0.08 + Math.random() * 0.25;
-          positions[baseIndex + 2] = emitter.position.z + (Math.random() - 0.5) * 0.45;
+          const respawnRadius = 0.45 * (0.9 + emitter.scale * 0.25);
+          positions[baseIndex] = emitter.position.x + (Math.random() - 0.5) * respawnRadius;
+          positions[baseIndex + 1] = Math.max(0.08, emitter.baseHeight * 0.08) + Math.random() * 0.25;
+          positions[baseIndex + 2] = emitter.position.z + (Math.random() - 0.5) * respawnRadius;
           velocities[particleIndex].set(
-            (Math.random() - 0.5) * 0.7,
-            2 + Math.random() * 2.4,
-            (Math.random() - 0.5) * 0.7
+            (Math.random() - 0.5) * 0.7 * (0.9 + emitter.scale * 0.2),
+            (2 + Math.random() * 2.4) * (0.95 + emitter.scale * 0.25),
+            (Math.random() - 0.5) * 0.7 * (0.9 + emitter.scale * 0.2)
           );
           lifetimes[particleIndex] = 0.55 + Math.random() * 0.95;
           continue;
@@ -895,7 +1090,7 @@ export class OilRigMap {
 
     this.ensureUv2(this.rigFloor.geometry);
     this.ensureUv2(this.rigTower.geometry);
-    this.ensureUv2(this.drillShaft.geometry);
+    this.ensureUv2(this.drillShaftVisual.geometry);
 
     this.applyPbrSetToMaterial(this.rigFloorMaterial, rubberTilesSet, {
       roughness: 1,
@@ -911,7 +1106,7 @@ export class OilRigMap {
       normalScale: new THREE.Vector2(0.8, 0.8),
     });
 
-    this.applyPbrSetToMaterial(this.drillShaft.material, drillSet, {
+    this.applyPbrSetToMaterial(this.drillShaftVisual.material, drillSet, {
       roughness: 1,
       metalness: 1,
       aoMapIntensity: 1,
@@ -933,7 +1128,7 @@ export class OilRigMap {
     while (generatedCount < targetCount && attempts < maxAttempts) {
       attempts += 1;
 
-      const size = THREE.MathUtils.randFloat(12, 20);
+      const size = THREE.MathUtils.randFloat(10, 17);
       const height = THREE.MathUtils.randFloat(3.8, 7.2);
       const halfSize = size * 0.5;
       const x = THREE.MathUtils.randFloat(-halfLevel + halfSize + margin, halfLevel - halfSize - margin);
@@ -1433,12 +1628,19 @@ export class OilRigMap {
     return Math.hypot(closestX, closestZ) < radius;
   }
 
-  getRandomSpawnSurface() {
+  getRandomSpawnSurface(baseOnly = false) {
     if (!this.platformSurfaces.length) {
       return null;
     }
 
     const baseSurfaces = this.platformSurfaces.filter((surface) => surface.topY <= 0.001);
+    if (baseOnly) {
+      if (!baseSurfaces.length) {
+        return null;
+      }
+      return baseSurfaces[Math.floor(Math.random() * baseSurfaces.length)];
+    }
+
     const elevatedSurfaces = this.platformSurfaces.filter((surface) => surface.topY > 0.001);
 
     const pickBase =
@@ -1510,7 +1712,7 @@ export class OilRigMap {
 
     const attempts = 42;
     for (let i = 0; i < attempts; i += 1) {
-      const surface = this.getRandomSpawnSurface();
+      const surface = this.getRandomSpawnSurface(true);
       if (!surface) {
         return false;
       }
@@ -1538,6 +1740,18 @@ export class OilRigMap {
     }
 
     return false;
+  }
+
+  isSpawnPositionBlocked(x, z, collisionSize = { x: 1.6, y: 2.6, z: 1.6 }) {
+    const bodyHeight = collisionSize?.y ?? 2.6;
+    this.spawnProbePosition.set(x, bodyHeight, z);
+    return this.collidesWithWorld(
+      this.spawnProbePosition,
+      null,
+      collisionSize,
+      null,
+      'square'
+    );
   }
 
   placeOnFloor(object3d) {
@@ -1699,6 +1913,7 @@ export class OilRigMap {
       helper.visible = this.hitboxDebugVisible;
       this.hitboxHelpers.push(helper);
       object3d.add(helper);
+      colliderEntry.helper = helper;
     }
 
     return colliderEntry;
@@ -2106,8 +2321,28 @@ export class OilRigMap {
   }
 
   update(delta) {
-    this.drillShaft.rotation.y += delta * 0.35;
-    this.rigTower.rotation.y += delta * 0.08;
+    this.drillSwayTime += delta;
+    this.drillShaftVisual.rotation.y += delta * this.drillRotationSpeed;
+    this.drillShaftVisual.rotation.x = Math.sin(this.drillSwayTime * 1.65) * this.drillSwayAmplitudeX;
+    this.drillShaftVisual.rotation.z = Math.cos(this.drillSwayTime * 1.3) * this.drillSwayAmplitudeZ;
+
+    this.drillLight.intensity =
+      80 + Math.sin(this.drillSwayTime * 19) * 16 + (Math.random() - 0.5) * 12;
+
+    if (this.drillOrbitParticleSystem && this.drillOrbitParticlePositions) {
+      const positions = this.drillOrbitParticlePositions;
+      for (let i = 0; i < this.drillOrbitParticleData.length; i += 1) {
+        const data = this.drillOrbitParticleData[i];
+        data.angle += delta * this.drillRotationSpeed * 6.4 * data.speed;
+        const idx = i * 3;
+        positions[idx] = Math.cos(data.angle) * data.radius;
+        positions[idx + 1] = data.height + Math.sin(this.drillSwayTime * 4 + i * 0.28) * 0.08;
+        positions[idx + 2] = Math.sin(data.angle) * data.radius;
+      }
+
+      this.drillOrbitParticleSystem.geometry.attributes.position.needsUpdate = true;
+    }
+
     this.updateFireEmitters(delta);
 
     for (const collider of this.hullColliderEntries) {

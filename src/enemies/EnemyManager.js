@@ -89,10 +89,18 @@ export class EnemyManager {
     this.separationStrength = 1.35;
 
     this.enemyCollisionSize = new THREE.Vector3(1.6, 2.4, 1.6);
+    this.pendingSpawnConfigs = [];
+    this.spawnCountdown = 0;
+    this.spawnIntervalSeconds = 0.12;
+    this.initialSpawnDelaySeconds = 0.55;
+    this.enemySpawnBeacons = [];
 
-    for (const config of spawnConfigs) {
-      this.spawn(config);
-    }
+    this.scheduleSpawnSequence(spawnConfigs);
+  }
+
+  scheduleSpawnSequence(spawnConfigs, initialDelay = this.initialSpawnDelaySeconds) {
+    this.pendingSpawnConfigs = Array.isArray(spawnConfigs) ? [...spawnConfigs] : [];
+    this.spawnCountdown = this.pendingSpawnConfigs.length > 0 ? Math.max(0, initialDelay) : 0;
   }
 
   spawn(config) {
@@ -142,6 +150,98 @@ export class EnemyManager {
       goopTrailAccumulator: Math.random() * 0.045,
       ui,
     });
+
+    this.spawnEnemySpawnBeacon(mesh.position);
+  }
+
+  spawnEnemySpawnBeacon(position) {
+    const count = 34;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3);
+    const velocities = [];
+
+    for (let i = 0; i < count; i += 1) {
+      const idx = i * 3;
+      positions[idx] = position.x;
+      positions[idx + 1] = Math.max(0.12, position.y * 0.05);
+      positions[idx + 2] = position.z;
+
+      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.35;
+      const radialSpeed = 2.5 + Math.random() * 4;
+      velocities.push(
+        new THREE.Vector3(
+          Math.cos(angle) * radialSpeed,
+          5.8 + Math.random() * 2.8,
+          Math.sin(angle) * radialSpeed
+        )
+      );
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 0.24,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    });
+
+    const points = new THREE.Points(geometry, material);
+    this.scene.add(points);
+
+    this.enemySpawnBeacons.push({
+      points,
+      geometry,
+      material,
+      positions,
+      velocities,
+      age: 0,
+      life: 0.38,
+    });
+  }
+
+  updateSpawnSequence(delta) {
+    if (this.pendingSpawnConfigs.length === 0) {
+      return;
+    }
+
+    this.spawnCountdown -= delta;
+    while (this.spawnCountdown <= 0 && this.pendingSpawnConfigs.length > 0) {
+      const config = this.pendingSpawnConfigs.shift();
+      this.spawn(config);
+      this.spawnCountdown += this.spawnIntervalSeconds;
+    }
+  }
+
+  updateEnemySpawnBeacons(delta) {
+    for (let i = this.enemySpawnBeacons.length - 1; i >= 0; i -= 1) {
+      const beacon = this.enemySpawnBeacons[i];
+      beacon.age += delta;
+      if (beacon.age >= beacon.life) {
+        this.scene.remove(beacon.points);
+        beacon.geometry.dispose();
+        beacon.material.dispose();
+        this.enemySpawnBeacons.splice(i, 1);
+        continue;
+      }
+
+      const decay = 1 - beacon.age / beacon.life;
+      const attr = beacon.geometry.attributes.position;
+      for (let p = 0; p < beacon.velocities.length; p += 1) {
+        const idx = p * 3;
+        const velocity = beacon.velocities[p];
+        velocity.y -= 9.2 * delta;
+        beacon.positions[idx] += velocity.x * delta;
+        beacon.positions[idx + 1] += velocity.y * delta;
+        beacon.positions[idx + 2] += velocity.z * delta;
+      }
+
+      attr.needsUpdate = true;
+      beacon.material.opacity = decay;
+      beacon.material.size = 0.24 + decay * 0.2;
+    }
   }
 
   spawnEnemyDeathBurst(enemy) {
@@ -315,6 +415,8 @@ export class EnemyManager {
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
     const velocities = [];
+    const collisionHeight = enemy.collisionSize?.y ?? 2.4;
+    const baseY = enemy.mesh.position.y - collisionHeight * 0.5;
 
     for (let i = 0; i < count; i += 1) {
       const idx = i * 3;
@@ -338,7 +440,7 @@ export class EnemyManager {
       }
 
       positions[idx] = enemy.mesh.position.x + localX;
-      positions[idx + 1] = enemy.mesh.position.y - 0.2 + Math.random() * 0.6;
+      positions[idx + 1] = baseY + 0.06 + Math.random() * 0.24;
       positions[idx + 2] = enemy.mesh.position.z + localZ;
 
       velocities.push(
@@ -412,6 +514,8 @@ export class EnemyManager {
       this.hasLastPlayerPosition = true;
     }
     this.lastPlayerPosition.copy(playerPosition);
+
+    this.updateSpawnSequence(delta);
 
     for (const enemy of this.enemies) {
       if (!enemy.alive) {
@@ -505,6 +609,7 @@ export class EnemyManager {
     this.updateHotCoalMuzzleBursts(delta);
     this.updateEnemyDeathBursts(delta);
     this.updateOilGoopDripTrails(delta);
+    this.updateEnemySpawnBeacons(delta);
 
     return totalDamage;
   }
@@ -586,12 +691,12 @@ export class EnemyManager {
 
     const directDistance = projectileMesh.position.distanceTo(playerPosition);
     const projectileSpeed = Math.max(0.01, enemy.coalProjectileSpeed);
-    const leadTime = THREE.MathUtils.clamp(directDistance / projectileSpeed, 0.03, 0.62);
+    const leadTime = THREE.MathUtils.clamp(directDistance / projectileSpeed, 0.03, 0.46);
 
     this.leadTargetPosition.copy(playerPosition);
     this.leadTargetPosition.y -= 0.92;
     if (playerVelocity) {
-      this.leadTargetPosition.addScaledVector(playerVelocity, leadTime * 0.86);
+      this.leadTargetPosition.addScaledVector(playerVelocity, leadTime * 0.42);
     }
 
     this.projectileDirection.copy(this.leadTargetPosition).sub(projectileMesh.position);
@@ -1042,7 +1147,7 @@ export class EnemyManager {
   }
 
   getAliveCount() {
-    return this.enemies.filter((enemy) => enemy.alive).length;
+    return this.enemies.filter((enemy) => enemy.alive).length + this.pendingSpawnConfigs.length;
   }
 
   clearAll() {
@@ -1096,6 +1201,16 @@ export class EnemyManager {
       trail.material.dispose();
     }
     this.oilGoopDripTrails = [];
+
+    for (const beacon of this.enemySpawnBeacons) {
+      this.scene.remove(beacon.points);
+      beacon.geometry.dispose();
+      beacon.material.dispose();
+    }
+    this.enemySpawnBeacons = [];
+
+    this.pendingSpawnConfigs = [];
+    this.spawnCountdown = 0;
     this.deathEvents = [];
   }
 
@@ -1105,9 +1220,6 @@ export class EnemyManager {
     this.elapsedTime = 0;
     this.hasLastPlayerPosition = false;
     this.playerVelocityEstimate.set(0, 0, 0);
-
-    for (const config of spawnConfigs) {
-      this.spawn(config);
-    }
+    this.scheduleSpawnSequence(spawnConfigs);
   }
 }

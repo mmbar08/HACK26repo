@@ -113,9 +113,12 @@ export class ShootingSystem {
     direction.normalize();
     const geometry = new THREE.CylinderGeometry(0.045, 0.045, length, 8, 1, true);
     const material = new THREE.MeshBasicMaterial({
-      color: 0x8ee7ff,
+      color: 0xd8f8ff,
       transparent: true,
-      opacity: 0.95,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
     });
     const beam = new THREE.Mesh(geometry, material);
 

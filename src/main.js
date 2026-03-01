@@ -14,6 +14,8 @@ import { RepairInteraction } from './objective/RepairInteraction.js';
 const app = document.getElementById('app');
 const maxPlayerHealth = 100;
 const healthRegenPerSecond = 1;
+const shakeStrengthMultiplier = 1.6;
+const dropStartHeight = 17;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -44,7 +46,8 @@ const oilZombieSpawner = new OilZombieSpawner(oilRigMap);
 const levelConfigs = [
   {
     name: 'Open Deck',
-    enemyCount: 8,
+    enemyCount: 6,
+    spawnMaxDistanceFromCenter: 42,
     map: {
       hasWallsRoof: false,
       hasLightGrid: false,
@@ -57,7 +60,8 @@ const levelConfigs = [
   },
   {
     name: 'Containment Ring',
-    enemyCount: 10,
+    enemyCount: 8,
+    spawnMaxDistanceFromCenter: 40,
     map: {
       hasWallsRoof: true,
       hasLightGrid: true,
@@ -70,16 +74,20 @@ const levelConfigs = [
   },
   {
     name: 'Final Pressure',
-    enemyCount: 12,
+    enemyCount: 10,
+    spawnMaxDistanceFromCenter: 38,
     map: {
       hasWallsRoof: true,
       hasLightGrid: true,
       hasFire: true,
       useBlueSky: false,
       useGlobalLights: true,
-      globalLightBoost: 1.35,
+      globalLightBoost: 0.42,
       hasDrillShaft: true,
-      fireCountMultiplier: 1.9,
+      fireCountMultiplier: 0.62,
+      fireNearDrillCount: 0,
+      hasLargeDrillFire: true,
+      largeDrillFireScale: 2.9,
     },
   },
 ];
@@ -91,7 +99,9 @@ oilRigMap.regenerateLevelEnvironment();
 const enemySpawnConfigs = oilZombieSpawner.spawn(levelConfigs[currentLevelIndex].enemyCount, {
   playerPosition: { x: camera.position.x, z: camera.position.z },
   minDistanceFromPlayer: 24,
+  maxDistanceFromCenter: levelConfigs[currentLevelIndex].spawnMaxDistanceFromCenter,
 });
+let levelStartEnemyCount = Math.max(1, enemySpawnConfigs.length);
 
 const enemyManager = new EnemyManager(scene, hud, enemySpawnConfigs, 0.55, oilRigMap);
 const shootingSystem = new ShootingSystem(scene, camera, enemyManager, oilRigMap);
@@ -101,41 +111,54 @@ const maxEnemyRangedRadius = enemySpawnConfigs.reduce(
 );
 shootingSystem.maxLaserRange = maxEnemyRangedRadius + 2.6;
 shootingSystem.maxLaserRange *= 1.2;
-const rigFailure = new RigFailureSystem(360);
+const rigFailure = new RigFailureSystem(120);
 const drillObjective = new DrillShaftObjective(oilRigMap.getDrillPosition(), 4.2);
 const repairInteraction = new RepairInteraction(4.5);
 const maxDrillDurability = 100;
-const respawnPosition = new THREE.Vector3(0, player.playerHeight, 10);
+const respawnPosition = new THREE.Vector3(0, player.playerHeight - 0.85, 10);
 
 let playerHealth = maxPlayerHealth;
 let dropSequenceRemaining = 2;
-let hitboxDebugVisible = true;
+let hitboxDebugVisible = false;
 let failureReasonText = 'Operator down.';
 let deathAnimationTime = 0;
 let deathAnimationStarted = false;
 const deathAnimationDuration = 1.1;
 const deathSimulationDuration = 2.5;
+const levelClearDelaySeconds = 2;
 let deathSimulationRemaining = 0;
+let levelClearCountdown = 0;
+let pendingLevelAdvance = false;
 let cameraShakeStrength = 0;
 let cameraShakeTime = 0;
 let appliedShakePitch = 0;
 let appliedShakeRoll = 0;
 
 oilRigMap.setHitboxDebugVisible(hitboxDebugVisible);
-hud.showMessage('Hitbox debug: ON (press F2 to toggle)');
+hud.showMessage('Hitbox debug: OFF (press F2 to toggle)');
 
 hud.setHealth(playerHealth, maxPlayerHealth);
 hud.setObjective('Drop into the oil rig');
 hud.setLevelStatus(currentLevelIndex + 1, levelConfigs.length);
-hud.setDrillDurability(maxDrillDurability, maxDrillDurability);
+hud.setDrillMarkerVisible(currentLevelIndex >= levelConfigs.length - 1);
 hud.setDeathDim(0);
 hud.setWeaponCooldown(0);
+
+function refreshLevelProgressHud() {
+  const aliveEnemies = enemyManager.getAliveCount();
+  const defeatedEnemies = Math.max(0, levelStartEnemyCount - aliveEnemies);
+  const ratio = levelStartEnemyCount > 0 ? defeatedEnemies / levelStartEnemyCount : 1;
+  hud.setLevelProgress(ratio, `Enemies Killed: ${defeatedEnemies}/${levelStartEnemyCount}`);
+}
+
+refreshLevelProgressHud();
 
 function createEnemySpawnSet(playerPos) {
   const levelConfig = levelConfigs[currentLevelIndex] ?? levelConfigs[0];
   return oilZombieSpawner.spawn(levelConfig.enemyCount, {
     playerPosition: { x: playerPos.x, z: playerPos.z },
     minDistanceFromPlayer: 24,
+    maxDistanceFromCenter: levelConfig.spawnMaxDistanceFromCenter,
   });
 }
 
@@ -156,18 +179,23 @@ function switchToLevel(nextLevelIndex) {
   currentLevelIndex = clampedIndex;
   applyCurrentLevelConfig();
   oilRigMap.regenerateLevelEnvironment();
-  rigFailure.reset();
   repairInteraction.reset();
   drillObjective.reset();
 
   const spawnSet = createEnemySpawnSet(respawnPosition);
   enemyManager.reset(spawnSet);
+  levelStartEnemyCount = Math.max(1, spawnSet.length);
 
   player.respawn(respawnPosition.x, respawnPosition.z, Math.PI, 0);
   dropSequenceRemaining = 1.4;
+  pendingLevelAdvance = false;
+  levelClearCountdown = 0;
+  hud.hideLevelClearScreen();
   hud.setLevelStatus(currentLevelIndex + 1, levelConfigs.length);
+  hud.setDrillMarkerVisible(currentLevelIndex >= levelConfigs.length - 1);
   hud.showMessage(`${getLevelLabel()} deployed.`);
   hud.setObjective('Drop into the oil rig');
+  refreshLevelProgressHud();
   return true;
 }
 
@@ -189,7 +217,9 @@ function beginFailureSequence(reasonText) {
 }
 
 function respawnGame() {
+  currentLevelIndex = 0;
   applyCurrentLevelConfig();
+  oilRigMap.regenerateLevelEnvironment();
   rigFailure.reset();
   repairInteraction.reset();
   drillObjective.reset();
@@ -197,13 +227,14 @@ function respawnGame() {
   playerHealth = maxPlayerHealth;
   hud.setHealth(playerHealth, maxPlayerHealth);
   hud.setLevelStatus(currentLevelIndex + 1, levelConfigs.length);
+  hud.setDrillMarkerVisible(currentLevelIndex >= levelConfigs.length - 1);
   hud.setObjective('Drop into the oil rig');
   hud.setRepairProgress(false, 0, 'Move to drill shaft');
   hud.setRigFailure(rigFailure.remainingSeconds, rigFailure.getRatio());
-  hud.setDrillDurability(maxDrillDurability, maxDrillDurability);
 
   const spawnSet = createEnemySpawnSet(respawnPosition);
   enemyManager.reset(spawnSet);
+  levelStartEnemyCount = Math.max(1, spawnSet.length);
 
   cameraShakeStrength = 0;
   cameraShakeTime = 0;
@@ -212,13 +243,47 @@ function respawnGame() {
   deathAnimationStarted = false;
   deathAnimationTime = 0;
   deathSimulationRemaining = 0;
+  pendingLevelAdvance = false;
+  levelClearCountdown = 0;
 
   player.respawn(respawnPosition.x, respawnPosition.z, Math.PI, 0);
   dropSequenceRemaining = 2;
   hud.hideDeathScreen();
+  hud.hideLevelClearScreen();
   hud.setDeathDim(0);
+  refreshLevelProgressHud();
   gameState.setState('in-game');
   input.requestPointerLock();
+}
+
+function beginLevelClearTransition() {
+  if (pendingLevelAdvance || currentLevelIndex >= levelConfigs.length - 1) {
+    return;
+  }
+
+  pendingLevelAdvance = true;
+  levelClearCountdown = levelClearDelaySeconds;
+  hud.showLevelClearScreen(`${getLevelLabel()} CLEARED`);
+  hud.setRepairProgress(false, 0, 'Preparing deployment...');
+}
+
+function updateLevelClearTransition(delta) {
+  if (!pendingLevelAdvance) {
+    return;
+  }
+
+  levelClearCountdown = Math.max(0, levelClearCountdown - delta);
+  hud.setObjective(
+    `Level cleared. Deploying to Level ${Math.min(levelConfigs.length, currentLevelIndex + 2)}...`
+  );
+
+  if (levelClearCountdown > 0) {
+    return;
+  }
+
+  pendingLevelAdvance = false;
+  hud.hideLevelClearScreen();
+  switchToLevel(currentLevelIndex + 1);
 }
 
 function applyDamage(amount) {
@@ -226,7 +291,7 @@ function applyDamage(amount) {
   hud.setHealth(playerHealth, maxPlayerHealth);
   hud.triggerDamageFlash(amount / 20);
   hud.triggerHitBorder(amount / 32);
-  cameraShakeStrength = Math.min(1, cameraShakeStrength + amount / 24);
+  cameraShakeStrength = Math.min(1, cameraShakeStrength + (amount / 24) * shakeStrengthMultiplier);
 
   const hitOrigin = camera.position.clone().add(new THREE.Vector3(0, -0.15, 0));
   shootingSystem.spawnPlayerHitParticles(hitOrigin);
@@ -247,9 +312,11 @@ function applyHealthRegen(delta) {
 
 gameState.onChange((state) => {
   if (state === 'menu') {
+    hud.hideLevelClearScreen();
     hud.showMessage('Click to lock pointer and deploy to the oil rig.');
   }
   if (state === 'in-game') {
+    hud.hideLevelClearScreen();
     hud.setObjective(`${getLevelLabel()} - Survive and reach the drill shaft`);
   }
   if (state === 'paused') {
@@ -258,8 +325,11 @@ gameState.onChange((state) => {
   if (state === 'success') {
     hud.showMessage('Rig stabilized. Mission successful.');
     hud.setObjective('Mission complete');
+    hud.showLevelClearScreen('MISSION COMPLETE');
+    document.exitPointerLock?.();
   }
   if (state === 'failure') {
+    hud.hideLevelClearScreen();
     hud.showMessage('Rig failure detected. Mission failed.');
     hud.setObjective('Mission failed');
     hud.showDeathScreen(failureReasonText);
@@ -317,7 +387,13 @@ document.addEventListener('mousedown', (event) => {
     gameState.is('in-game') &&
     dropSequenceRemaining <= 0
   ) {
-    shootingSystem.shoot();
+    const didShoot = shootingSystem.shoot();
+    if (didShoot) {
+      cameraShakeStrength = Math.min(
+        1,
+        cameraShakeStrength + 0.09 * shakeStrengthMultiplier
+      );
+    }
   }
 });
 
@@ -377,7 +453,7 @@ function updateDropSequence(delta) {
   dropSequenceRemaining = Math.max(0, dropSequenceRemaining - delta);
 
   const progress = 1 - dropSequenceRemaining / 2;
-  const startY = 24;
+  const startY = dropStartHeight;
   const endY = player.playerHeight;
   camera.position.y = THREE.MathUtils.lerp(startY, endY, progress);
 
@@ -388,17 +464,56 @@ function updateDropSequence(delta) {
   }
 }
 
-function updateObjectiveFlow() {
+function updateObjectiveFlow(delta) {
+  const isFinalLevel = currentLevelIndex >= levelConfigs.length - 1;
   const enemiesCleared = enemyManager.getAliveCount() === 0;
-  hud.setRepairProgress(false, 0, 'Eliminate hostiles');
+  drillObjective.update(camera.position);
 
-  if (enemiesCleared) {
-    hud.setObjective('Hostiles cleared. Advancing level...');
-    advanceLevel();
+  if (pendingLevelAdvance) {
+    hud.setRepairProgress(false, 0, 'Preparing deployment...');
     return;
   }
 
-  hud.setObjective(`${getLevelLabel()} - Eliminate all Oil zombies`);
+  if (!isFinalLevel) {
+    hud.setRepairProgress(false, 0, 'Eliminate hostiles');
+
+    if (enemiesCleared) {
+      beginLevelClearTransition();
+      return;
+    }
+
+    hud.setObjective(`${getLevelLabel()} - Eliminate all Oil zombies`);
+    return;
+  }
+
+  if (drillObjective.completed) {
+    hud.setRepairProgress(false, 1, 'Drill repaired');
+    return;
+  }
+
+  if (!enemiesCleared) {
+    hud.setObjective(`${getLevelLabel()} - Eliminate all Oil zombies`);
+    hud.setRepairProgress(false, 0, 'Eliminate hostiles first');
+    return;
+  }
+
+  const isAtDrill = drillObjective.isReached();
+  const isHoldingRepair = input.isPressed('KeyR');
+  const repairCompleted = repairInteraction.update(delta, isHoldingRepair, isAtDrill);
+
+  if (isAtDrill) {
+    hud.setObjective('Hold R to repair the drill shaft');
+    hud.setRepairProgress(true, repairInteraction.getRatio(), 'Repairing drill shaft...');
+  } else {
+    hud.setObjective('Final level clear. Reach the drill shaft and hold R to repair');
+    hud.setRepairProgress(false, 0, 'Move to drill shaft');
+  }
+
+  if (repairCompleted) {
+    drillObjective.complete();
+    hud.setRepairProgress(false, 1, 'Drill shaft repaired');
+    gameState.setState('success');
+  }
 }
 
 function animate() {
@@ -412,6 +527,8 @@ function animate() {
   if (gameState.is('in-game')) {
     if (dropSequenceRemaining > 0) {
       updateDropSequence(delta);
+    } else if (pendingLevelAdvance) {
+      updateLevelClearTransition(delta);
     } else {
       player.update(delta);
 
@@ -425,7 +542,10 @@ function animate() {
       const damageTaken = enemyManager.update(delta, camera.position);
       const deathEvents = enemyManager.consumeDeathEvents();
       for (const deathEvent of deathEvents) {
-        cameraShakeStrength = Math.min(1, cameraShakeStrength + (deathEvent.shakeStrength ?? 0.12));
+        cameraShakeStrength = Math.min(
+          1,
+          cameraShakeStrength + (deathEvent.shakeStrength ?? 0.12) * shakeStrengthMultiplier
+        );
       }
       if (damageTaken > 0 && playerHealth > 0) {
         applyDamage(damageTaken);
@@ -433,7 +553,7 @@ function animate() {
 
       applyHealthRegen(delta);
 
-      updateObjectiveFlow();
+      updateObjectiveFlow(delta);
     }
   } else if (gameState.is('failure')) {
     if (!deathAnimationStarted) {
@@ -453,10 +573,14 @@ function animate() {
 
   if (gameState.is('in-game') && cameraShakeStrength > 0.0001) {
     cameraShakeTime += delta;
-    const noisePitch = Math.sin(cameraShakeTime * 78) * 0.006 * cameraShakeStrength;
-    const noiseRoll = Math.cos(cameraShakeTime * 64) * 0.0045 * cameraShakeStrength;
-    const randomPitch = (Math.random() - 0.5) * 0.0032 * cameraShakeStrength;
-    const randomRoll = (Math.random() - 0.5) * 0.0025 * cameraShakeStrength;
+    const noisePitch =
+      Math.sin(cameraShakeTime * 78) * 0.006 * cameraShakeStrength * shakeStrengthMultiplier;
+    const noiseRoll =
+      Math.cos(cameraShakeTime * 64) * 0.0045 * cameraShakeStrength * shakeStrengthMultiplier;
+    const randomPitch =
+      (Math.random() - 0.5) * 0.0032 * cameraShakeStrength * shakeStrengthMultiplier;
+    const randomRoll =
+      (Math.random() - 0.5) * 0.0025 * cameraShakeStrength * shakeStrengthMultiplier;
     appliedShakePitch = noisePitch + randomPitch;
     appliedShakeRoll = noiseRoll + randomRoll;
     camera.rotation.x += appliedShakePitch;
@@ -472,13 +596,14 @@ function animate() {
 
   hud.updateFps(delta);
   hud.setInputDebug(input.getPressedKeysText(), enemyManager.getAliveCount());
+  refreshLevelProgressHud();
   hud.setWeaponCooldown(shootingSystem.getCooldownRatio());
   hud.updateDamageFlash(delta);
   hud.updateHitBorder(delta);
-  hud.updateDrillMarker(oilRigMap.getDrillPosition(), camera, camera.position);
+  if (oilRigMap.isDrillShaftEnabled()) {
+    hud.updateDrillMarker(oilRigMap.getDrillPosition(), camera, camera.position);
+  }
   hud.setRigFailure(rigFailure.remainingSeconds, rigFailure.getRatio());
-  hud.setDrillDurability(rigFailure.getRatio() * maxDrillDurability, maxDrillDurability);
-  hud.updateDrillDurabilityAnchor(oilRigMap.getDrillPosition(), camera);
 
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
